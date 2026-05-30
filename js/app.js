@@ -5,6 +5,12 @@ var connectionRetryInterval = null;
 var connectionTimeoutId = null;
 var currentState = "not-connected"; // not-connected, connecting, connected
 
+// Handle unhandled promise rejections
+window.addEventListener("unhandledrejection", function (event) {
+  console.error("Unhandled promise rejection:", event.reason);
+  event.preventDefault();
+});
+
 // Auto-connect on page load
 window.addEventListener("load", function () {
   attemptConnect();
@@ -18,34 +24,45 @@ function attemptConnect() {
   // Set a timeout to fail if connection takes too long
   connectionTimeoutId = setTimeout(function () {
     if (currentState === "connecting") {
+      console.log("Connection timeout - no response from rover");
       updateState("not-connected");
       scheduleRetry();
     }
   }, 8000);
 
-  ros = new ROSLIB.Ros({ url: "ws://10.97.199.151:9090" });
+  try {
+    ros = new ROSLIB.Ros({ url: "ws://10.97.199.151:9090" });
 
-  ros.on("connection", function () {
-    clearTimeout(connectionTimeoutId);
-    updateState("connected");
-    setupTopics();
-  });
+    ros.on("connection", function () {
+      console.log("ROS connection established!");
+      clearTimeout(connectionTimeoutId);
+      updateState("connected");
+      setupTopics();
+    });
 
-  ros.on("error", function (error) {
-    clearTimeout(connectionTimeoutId);
-    if (currentState === "connecting") {
-      updateState("not-connected");
-      scheduleRetry();
-    }
-  });
+    ros.on("error", function (error) {
+      console.error("ROS connection error:", error);
+      clearTimeout(connectionTimeoutId);
+      if (currentState === "connecting") {
+        updateState("not-connected");
+        scheduleRetry();
+      }
+    });
 
-  ros.on("close", function () {
+    ros.on("close", function () {
+      console.log("ROS connection closed");
+      clearTimeout(connectionTimeoutId);
+      if (currentState === "connecting") {
+        updateState("not-connected");
+        scheduleRetry();
+      }
+    });
+  } catch (error) {
+    console.error("Error creating ROS connection:", error);
     clearTimeout(connectionTimeoutId);
-    if (currentState === "connecting") {
-      updateState("not-connected");
-      scheduleRetry();
-    }
-  });
+    updateState("not-connected");
+    scheduleRetry();
+  }
 }
 
 function updateState(state) {
@@ -106,35 +123,64 @@ function skipToTestDashboard() {
 }
 
 function setupTopics() {
-  cmdVel = new ROSLIB.Topic({
-    ros: ros,
-    name: "/cmd_vel",
-    messageType: "geometry_msgs/Twist",
-  });
+  try {
+    // Setup command velocity publisher
+    cmdVel = new ROSLIB.Topic({
+      ros: ros,
+      name: "/cmd_vel",
+      messageType: "geometry_msgs/Twist",
+    });
+    console.log("CMD_VEL topic initialized");
 
-  mapListener = new ROSLIB.Topic({
-    ros: ros,
-    name: "/map",
-    messageType: "nav_msgs/OccupancyGrid",
-  });
+    // Setup map subscriber
+    mapListener = new ROSLIB.Topic({
+      ros: ros,
+      name: "/map",
+      messageType: "nav_msgs/OccupancyGrid",
+    });
+    console.log("MAP topic initialized, subscribing...");
 
-  mapListener.subscribe(function (message) {
-    console.log("Map data received:", message);
-    drawMap(message);
-  });
+    mapListener.subscribe(function (message) {
+      try {
+        console.log("Map data received:", {
+          width: message.info.width,
+          height: message.info.height,
+          dataLength: message.data.length
+        });
+        drawMap(message);
+      } catch (error) {
+        console.error("Error processing map message:", error);
+      }
+    });
+
+    console.log("Topics setup complete");
+  } catch (error) {
+    console.error("Error in setupTopics:", error);
+  }
 }
 
 function sendCmd(direction) {
-  if (!cmdVel) return;
-  var twist = new ROSLIB.Message({
-    linear: { x: 0, y: 0, z: 0 },
-    angular: { x: 0, y: 0, z: 0 },
-  });
-  if (direction === "forward") twist.linear.x = 0.5;
-  if (direction === "backward") twist.linear.x = -0.5;
-  if (direction === "left") twist.angular.z = 0.5;
-  if (direction === "right") twist.angular.z = -0.5;
-  cmdVel.publish(twist);
+  if (!cmdVel || !ros || !ros.isConnected) {
+    console.warn("Cannot send command - not connected");
+    return;
+  }
+
+  try {
+    var twist = new ROSLIB.Message({
+      linear: { x: 0, y: 0, z: 0 },
+      angular: { x: 0, y: 0, z: 0 },
+    });
+
+    if (direction === "forward") twist.linear.x = 0.5;
+    if (direction === "backward") twist.linear.x = -0.5;
+    if (direction === "left") twist.angular.z = 0.5;
+    if (direction === "right") twist.angular.z = -0.5;
+
+    cmdVel.publish(twist);
+    console.log("Command sent:", direction);
+  } catch (error) {
+    console.error("Error sending command:", error);
+  }
 }
 
 function drawMap(map) {
