@@ -132,13 +132,17 @@ function setupTopics() {
     });
     console.log("CMD_VEL topic initialized");
 
-    // Setup map subscriber
+    // Setup map subscriber with throttling to reduce bandwidth
+    // throttle_rate: 5000ms = receive 1 message every 5 seconds
+    // queue_length: 1 = only keep the latest message
     mapListener = new ROSLIB.Topic({
       ros: ros,
       name: "/map",
       messageType: "nav_msgs/OccupancyGrid",
+      throttle_rate: 5000,
+      queue_length: 1
     });
-    console.log("MAP topic initialized, subscribing...");
+    console.log("MAP topic initialized with throttle_rate: 5000ms, subscribing...");
 
     mapListener.subscribe(function (message) {
       try {
