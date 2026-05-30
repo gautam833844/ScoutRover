@@ -119,6 +119,7 @@ function setupTopics() {
   });
 
   mapListener.subscribe(function (message) {
+    console.log("Map data received:", message);
     drawMap(message);
   });
 }
@@ -137,22 +138,86 @@ function sendCmd(direction) {
 }
 
 function drawMap(map) {
-  var canvas = document.getElementById("map-canvas");
-  var ctx = canvas.getContext("2d");
-  var width = map.info.width;
-  var height = map.info.height;
-  canvas.width = width;
-  canvas.height = height;
-  var imageData = ctx.createImageData(width, height);
-  for (var i = 0; i < map.data.length; i++) {
-    var cell = map.data[i];
-    var color = cell === -1 ? 128 : cell === 0 ? 255 : 0;
-    imageData.data[i * 4] = color;
-    imageData.data[i * 4 + 1] = color;
-    imageData.data[i * 4 + 2] = color;
-    imageData.data[i * 4 + 3] = 255;
+  try {
+    if (!map || !map.data || !map.info) {
+      console.error("Invalid map data:", map);
+      return;
+    }
+
+    var canvas = document.getElementById("map-canvas");
+    var container = document.getElementById("map-container");
+    
+    if (!canvas || !container) {
+      console.error("Canvas or container not found");
+      return;
+    }
+
+    var width = map.info.width;
+    var height = map.info.height;
+    console.log("Map dimensions:", width, "x", height);
+
+    // Calculate scaling to fit container (400px max height)
+    var containerHeight = 400;
+    var containerWidth = container.offsetWidth;
+    var scale = Math.min(containerWidth / width, containerHeight / height, 1);
+    
+    var displayWidth = Math.floor(width * scale);
+    var displayHeight = Math.floor(height * scale);
+
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    canvas.style.width = displayWidth + "px";
+    canvas.style.height = displayHeight + "px";
+
+    var ctx = canvas.getContext("2d");
+    var imageData = ctx.createImageData(displayWidth, displayHeight);
+    var data = imageData.data;
+
+    // Create scaled map: downsample if necessary
+    var scaleInt = Math.ceil(1 / scale);
+    
+    for (var y = 0; y < displayHeight; y++) {
+      for (var x = 0; x < displayWidth; x++) {
+        // Map from display coordinates back to original map coordinates
+        var mapX = Math.floor(x / scale);
+        var mapY = Math.floor(y / scale);
+        var mapIdx = mapY * width + mapX;
+
+        var cell = map.data[mapIdx];
+        var gray;
+
+        // Color mapping for occupancy grid
+        // -1 = unknown (gray), 0 = free (white), 1-100 = occupied (black)
+        if (cell === -1) {
+          gray = 128; // Unknown = gray
+        } else if (cell === 0) {
+          gray = 255; // Free = white
+        } else if (cell > 0) {
+          // Occupied: scale 1-100 to 0-255 (darker = more occupied)
+          gray = Math.max(0, 255 - (cell * 2.55));
+        } else {
+          gray = 128;
+        }
+
+        var idx = (y * displayWidth + x) * 4;
+        data[idx] = gray;     // R
+        data[idx + 1] = gray; // G
+        data[idx + 2] = gray; // B
+        data[idx + 3] = 255;  // A
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+
+    // Hide placeholder and show canvas
+    var placeholder = document.getElementById("map-placeholder");
+    if (placeholder) {
+      placeholder.style.display = "none";
+    }
+    canvas.style.display = "block";
+
+    console.log("Map rendered successfully at", displayWidth, "x", displayHeight);
+  } catch (error) {
+    console.error("Error drawing map:", error);
   }
-  ctx.putImageData(imageData, 0, 0);
-  document.getElementById("map-placeholder").style.display = "none";
-  canvas.style.display = "block";
 }
