@@ -23,7 +23,7 @@ function attemptConnect() {
     }
   }, 8000);
 
-  ros = new ROSLIB.Ros({ url: "ws://rover.local:9090" });
+  ros = new ROSLIB.Ros({ url: "ws://10.97.199.151:9090" });
 
   ros.on("connection", function () {
     clearTimeout(connectionTimeoutId);
