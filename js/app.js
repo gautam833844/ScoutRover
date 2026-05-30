@@ -37,6 +37,8 @@ function attemptConnect() {
       console.log("ROS connection established!");
       clearTimeout(connectionTimeoutId);
       updateState("connected");
+      // List available topics for debugging
+      listAvailableTopics();
       setupTopics();
     });
 
@@ -122,6 +124,26 @@ function skipToTestDashboard() {
   updateState("connected");
 }
 
+function listAvailableTopics() {
+  // Get list of all available topics and their types
+  ROSLIB.Topic.getTopics(function (topics) {
+    console.log("Available topics:", topics);
+    
+    // Find /map topic specifically
+    var mapTopic = topics.find(function (t) {
+      return t[0] === "/map";
+    });
+    
+    if (mapTopic) {
+      console.log("Found /map topic with message type:", mapTopic[1]);
+    } else {
+      console.warn("/map topic not found in available topics");
+    }
+  }, function (error) {
+    console.error("Error getting topic list:", error);
+  });
+}
+
 function setupTopics() {
   try {
     // Setup command velocity publisher
@@ -144,12 +166,33 @@ function setupTopics() {
     });
     console.log("MAP topic initialized with throttle_rate: 5000ms, subscribing...");
 
+    // Add error handler to the topic directly
+    mapListener.on("error", function (error) {
+      console.error("MAP topic error event:", {
+        code: error.code,
+        name: error.name,
+        message: error.message,
+        httpStatus: error.httpStatus,
+        httpStatusText: error.httpStatusText,
+        httpError: error.httpError,
+        fullError: error
+      });
+    });
+
+    // Subscribe with message callback
     mapListener.subscribe(function (message) {
+      // Success callback - message received
       try {
+        if (!message || !message.info || !message.data) {
+          console.warn("Received invalid map message:", message);
+          return;
+        }
+        
         console.log("Map data received:", {
           width: message.info.width,
           height: message.info.height,
-          dataLength: message.data.length
+          dataLength: message.data.length,
+          timestamp: new Date().toISOString()
         });
         drawMap(message);
       } catch (error) {
@@ -196,7 +239,7 @@ function drawMap(map) {
 
     var canvas = document.getElementById("map-canvas");
     var container = document.getElementById("map-container");
-    
+
     if (!canvas || !container) {
       console.error("Canvas or container not found");
       return;
@@ -210,7 +253,7 @@ function drawMap(map) {
     var containerHeight = 400;
     var containerWidth = container.offsetWidth;
     var scale = Math.min(containerWidth / width, containerHeight / height, 1);
-    
+
     var displayWidth = Math.floor(width * scale);
     var displayHeight = Math.floor(height * scale);
 
@@ -225,7 +268,7 @@ function drawMap(map) {
 
     // Create scaled map: downsample if necessary
     var scaleInt = Math.ceil(1 / scale);
-    
+
     for (var y = 0; y < displayHeight; y++) {
       for (var x = 0; x < displayWidth; x++) {
         // Map from display coordinates back to original map coordinates
