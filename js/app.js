@@ -4,6 +4,8 @@ var mapListener = null;
 var connectionRetryInterval = null;
 var connectionTimeoutId = null;
 var currentState = "not-connected"; // not-connected, connecting, connected
+var lastMapUpdateTime = null; // Track last map update timestamp
+var mapUpdateIntervalId = null; // Update timestamp display every second
 
 // Handle unhandled promise rejections
 window.addEventListener("unhandledrejection", function (event) {
@@ -247,7 +249,7 @@ function drawMap(map) {
 
     var width = map.info.width;
     var height = map.info.height;
-    console.log("Map dimensions:", width, "x", height);
+    console.log("Rendering map:", width, "x", height);
 
     // Calculate scaling to fit container (400px max height)
     var containerHeight = 400;
@@ -257,24 +259,39 @@ function drawMap(map) {
     var displayWidth = Math.floor(width * scale);
     var displayHeight = Math.floor(height * scale);
 
+    // Set canvas resolution and display size
     canvas.width = displayWidth;
     canvas.height = displayHeight;
     canvas.style.width = displayWidth + "px";
     canvas.style.height = displayHeight + "px";
 
     var ctx = canvas.getContext("2d");
+    
+    // IMPORTANT: Clear the canvas before redrawing
+    ctx.clearRect(0, 0, displayWidth, displayHeight);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, displayWidth, displayHeight);
+
     var imageData = ctx.createImageData(displayWidth, displayHeight);
     var data = imageData.data;
 
-    // Create scaled map: downsample if necessary
-    var scaleInt = Math.ceil(1 / scale);
-
+    // Render scaled map
     for (var y = 0; y < displayHeight; y++) {
       for (var x = 0; x < displayWidth; x++) {
         // Map from display coordinates back to original map coordinates
         var mapX = Math.floor(x / scale);
         var mapY = Math.floor(y / scale);
+        
+        // Bounds check
+        if (mapX >= width || mapY >= height) {
+          continue;
+        }
+        
         var mapIdx = mapY * width + mapX;
+
+        if (mapIdx < 0 || mapIdx >= map.data.length) {
+          continue;
+        }
 
         var cell = map.data[mapIdx];
         var gray;
@@ -282,35 +299,66 @@ function drawMap(map) {
         // Color mapping for occupancy grid
         // -1 = unknown (gray), 0 = free (white), 1-100 = occupied (black)
         if (cell === -1) {
-          gray = 128; // Unknown = gray
+          gray = 200; // Unknown = light gray
         } else if (cell === 0) {
           gray = 255; // Free = white
         } else if (cell > 0) {
-          // Occupied: scale 1-100 to 0-255 (darker = more occupied)
-          gray = Math.max(0, 255 - (cell * 2.55));
+          // Occupied: scale 1-100 to 50-0 (darker = more occupied)
+          gray = Math.max(50, 255 - (cell * 2.05));
         } else {
-          gray = 128;
+          gray = 200;
         }
 
         var idx = (y * displayWidth + x) * 4;
         data[idx] = gray;     // R
         data[idx + 1] = gray; // G
         data[idx + 2] = gray; // B
-        data[idx + 3] = 255;  // A
+        data[idx + 3] = 255;  // A (fully opaque)
       }
     }
 
+    // Draw the image data to canvas
     ctx.putImageData(imageData, 0, 0);
 
-    // Hide placeholder and show canvas
+    // Hide placeholder and ensure canvas is visible
     var placeholder = document.getElementById("map-placeholder");
     if (placeholder) {
       placeholder.style.display = "none";
     }
     canvas.style.display = "block";
 
+    // Update the last map update time
+    lastMapUpdateTime = Date.now();
+    updateMapTimestamp();
+    
+    // Start/restart the timestamp update interval if not already running
+    if (!mapUpdateIntervalId) {
+      mapUpdateIntervalId = setInterval(updateMapTimestamp, 1000);
+    }
+
     console.log("Map rendered successfully at", displayWidth, "x", displayHeight);
   } catch (error) {
     console.error("Error drawing map:", error);
   }
 }
+
+function updateMapTimestamp() {
+  var timestampElement = document.getElementById("map-timestamp");
+  if (!timestampElement) return;
+
+  if (!lastMapUpdateTime) {
+    timestampElement.textContent = "Last updated: Never";
+    return;
+  }
+
+  var secondsAgo = Math.floor((Date.now() - lastMapUpdateTime) / 1000);
+  
+  if (secondsAgo === 0) {
+    timestampElement.textContent = "Last updated: Just now";
+  } else if (secondsAgo === 1) {
+    timestampElement.textContent = "Last updated: 1 second ago";
+  } else if (secondsAgo < 60) {
+    timestampElement.textContent = "Last updated: " + secondsAgo + " seconds ago";
+  } else {
+    var minutesAgo = Math.floor(secondsAgo / 60);
+    timestampElement.textContent = "Last updated: " + minutesAgo + " minute" + (minutesAgo > 1 ? "s" : "") + " ago";
