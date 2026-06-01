@@ -2,6 +2,7 @@
 var ros = null;
 var cmdVel = null;
 var mapListener = null;
+var sysCommand = null;
 var connectionRetryInterval = null;
 var connectionTimeoutId = null;
 var currentState = "not-connected"; // not-connected, connecting, connected
@@ -9,6 +10,7 @@ var lastMapUpdateTime = null; // Track last map update timestamp
 var mapUpdateIntervalId = null; // Update timestamp display every second
 var cmdIntervalId = null; // Track command interval for hold-to-move
 var currentDirection = null; // Track which direction is currently being held
+var saveMapTimeoutId = null; // Track save map status timeout
 
 // Handle unhandled promise rejections
 window.addEventListener("unhandledrejection", function (event) {
@@ -183,6 +185,14 @@ function setupTopics() {
       }
     });
 
+    // Setup system command publisher for map saving
+    sysCommand = new ROSLIB.Topic({
+      ros: ros,
+      name: "/syscommand",
+      messageType: "std_msgs/String",
+    });
+    console.log("SYSCOMMAND topic initialized");
+
     console.log("Topics setup complete");
   } catch (error) {
     console.error("Error in setupTopics:", error);
@@ -252,6 +262,59 @@ function stopRover() {
   sendCmd("stop");
   currentDirection = null;
   console.log("Rover stopped");
+}
+
+function saveMap() {
+  if (!sysCommand || !ros || !ros.isConnected) {
+    showSaveStatus("Error: Not connected to rover", "error");
+    console.warn("Cannot save map - not connected");
+    return;
+  }
+
+  try {
+    // Create and publish the save map command
+    var message = new ROSLIB.Message({
+      data: "savemap"
+    });
+
+    sysCommand.publish(message);
+    console.log("Save map command sent");
+    showSaveStatus("Saving map... Please wait", "info");
+
+    // Clear any existing timeout
+    if (saveMapTimeoutId) {
+      clearTimeout(saveMapTimeoutId);
+    }
+
+    // Show success message after a short delay
+    saveMapTimeoutId = setTimeout(function () {
+      showSaveStatus("✓ Map saved to ~/my_room_map", "success");
+      // Clear the status message after 5 seconds
+      setTimeout(function () {
+        document.getElementById("save-status").style.display = "none";
+      }, 5000);
+    }, 2000);
+  } catch (error) {
+    console.error("Error saving map:", error);
+    showSaveStatus("Error: Failed to save map", "error");
+  }
+}
+
+function showSaveStatus(message, type) {
+  var statusElement = document.getElementById("save-status");
+  statusElement.textContent = message;
+  statusElement.style.display = "block";
+
+  if (type === "success") {
+    statusElement.style.background = "#d1fae5";
+    statusElement.style.color = "#065f46";
+  } else if (type === "error") {
+    statusElement.style.background = "#fee2e2";
+    statusElement.style.color = "#991b1b";
+  } else if (type === "info") {
+    statusElement.style.background = "#dbeafe";
+    statusElement.style.color = "#0c2d6b";
+  }
 }
 
 function drawMap(map) {
