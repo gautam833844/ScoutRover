@@ -1,3 +1,4 @@
+
 var ros = null;
 var cmdVel = null;
 var mapListener = null;
@@ -6,6 +7,8 @@ var connectionTimeoutId = null;
 var currentState = "not-connected"; // not-connected, connecting, connected
 var lastMapUpdateTime = null; // Track last map update timestamp
 var mapUpdateIntervalId = null; // Update timestamp display every second
+var cmdIntervalId = null; // Track command interval for hold-to-move
+var currentDirection = null; // Track which direction is currently being held
 
 // Handle unhandled promise rejections
 window.addEventListener("unhandledrejection", function (event) {
@@ -33,14 +36,12 @@ function attemptConnect() {
   }, 8000);
 
   try {
-    ros = new ROSLIB.Ros({ url: "ws://10.97.199.151:9090" });
+    ros = new ROSLIB.Ros({ url: "ws://10.200.95.151:9090" });
 
     ros.on("connection", function () {
       console.log("ROS connection established!");
       clearTimeout(connectionTimeoutId);
       updateState("connected");
-      // List available topics for debugging
-      listAvailableTopics();
       setupTopics();
     });
 
@@ -126,26 +127,6 @@ function skipToTestDashboard() {
   updateState("connected");
 }
 
-function listAvailableTopics() {
-  // Get list of all available topics and their types
-  ROSLIB.Topic.getTopics(function (topics) {
-    console.log("Available topics:", topics);
-    
-    // Find /map topic specifically
-    var mapTopic = topics.find(function (t) {
-      return t[0] === "/map";
-    });
-    
-    if (mapTopic) {
-      console.log("Found /map topic with message type:", mapTopic[1]);
-    } else {
-      console.warn("/map topic not found in available topics");
-    }
-  }, function (error) {
-    console.error("Error getting topic list:", error);
-  });
-}
-
 function setupTopics() {
   try {
     // Setup command velocity publisher
@@ -189,7 +170,7 @@ function setupTopics() {
           console.warn("Received invalid map message:", message);
           return;
         }
-        
+
         console.log("Map data received:", {
           width: message.info.width,
           height: message.info.height,
@@ -224,12 +205,53 @@ function sendCmd(direction) {
     if (direction === "backward") twist.linear.x = -0.5;
     if (direction === "left") twist.angular.z = 0.5;
     if (direction === "right") twist.angular.z = -0.5;
+    if (direction === "stop") {
+      twist.linear.x = 0;
+      twist.angular.z = 0;
+    }
 
     cmdVel.publish(twist);
     console.log("Command sent:", direction);
   } catch (error) {
     console.error("Error sending command:", error);
   }
+}
+
+function startCmd(direction) {
+  if (!cmdVel || !ros || !ros.isConnected) {
+    console.warn("Cannot send command - not connected");
+    return;
+  }
+
+  // Clear any existing interval
+  if (cmdIntervalId) {
+    clearInterval(cmdIntervalId);
+  }
+
+  currentDirection = direction;
+
+  // Send command immediately
+  sendCmd(direction);
+
+  // Send command every 100ms while held
+  cmdIntervalId = setInterval(function () {
+    sendCmd(direction);
+  }, 100);
+
+  console.log("Started holding:", direction);
+}
+
+function stopRover() {
+  // Clear the command interval
+  if (cmdIntervalId) {
+    clearInterval(cmdIntervalId);
+    cmdIntervalId = null;
+  }
+
+  // Send stop command
+  sendCmd("stop");
+  currentDirection = null;
+  console.log("Rover stopped");
 }
 
 function drawMap(map) {
@@ -266,7 +288,7 @@ function drawMap(map) {
     canvas.style.height = displayHeight + "px";
 
     var ctx = canvas.getContext("2d");
-    
+
     // IMPORTANT: Clear the canvas before redrawing
     ctx.clearRect(0, 0, displayWidth, displayHeight);
     ctx.fillStyle = "#ffffff";
@@ -281,12 +303,12 @@ function drawMap(map) {
         // Map from display coordinates back to original map coordinates
         var mapX = Math.floor(x / scale);
         var mapY = Math.floor(y / scale);
-        
+
         // Bounds check
         if (mapX >= width || mapY >= height) {
           continue;
         }
-        
+
         var mapIdx = mapY * width + mapX;
 
         if (mapIdx < 0 || mapIdx >= map.data.length) {
@@ -330,7 +352,7 @@ function drawMap(map) {
     // Update the last map update time
     lastMapUpdateTime = Date.now();
     updateMapTimestamp();
-    
+
     // Start/restart the timestamp update interval if not already running
     if (!mapUpdateIntervalId) {
       mapUpdateIntervalId = setInterval(updateMapTimestamp, 1000);
@@ -352,7 +374,7 @@ function updateMapTimestamp() {
   }
 
   var secondsAgo = Math.floor((Date.now() - lastMapUpdateTime) / 1000);
-  
+
   if (secondsAgo === 0) {
     timestampElement.textContent = "Last updated: Just now";
   } else if (secondsAgo === 1) {
@@ -362,3 +384,5 @@ function updateMapTimestamp() {
   } else {
     var minutesAgo = Math.floor(secondsAgo / 60);
     timestampElement.textContent = "Last updated: " + minutesAgo + " minute" + (minutesAgo > 1 ? "s" : "") + " ago";
+  }
+}

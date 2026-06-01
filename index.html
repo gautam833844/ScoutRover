@@ -53,7 +53,15 @@
           <span id="map-placeholder">Awaiting map data...</span>
           <canvas id="map-canvas"></canvas>
         </div>
-        <div id="map-timestamp" style="font-size: 12px; color: #9ca3af; margin-top: 8px; text-align: center;">
+        <div
+          id="map-timestamp"
+          style="
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 8px;
+            text-align: center;
+          "
+        >
           Last updated: Never
         </div>
       </div>
@@ -63,15 +71,15 @@
         <label class="panel-label">Movement Controls</label>
         <div class="controls">
           <div class="row">
-            <button onclick="sendCmd('forward')">⬆</button>
+            <button onmousedown="startCmd('forward')" onmouseup="stopRover()" ontouchstart="startCmd('forward')" ontouchend="stopRover()">⬆</button>
           </div>
           <div class="row">
-            <button onclick="sendCmd('left')">⬅</button>
-            <button id="stop-btn" onclick="sendCmd('stop')">⏹</button>
-            <button onclick="sendCmd('right')">➡</button>
+            <button onmousedown="startCmd('left')" onmouseup="stopRover()" ontouchstart="startCmd('left')" ontouchend="stopRover()">⬅</button>
+            <button id="stop-btn" onmousedown="stopRover()" ontouchstart="stopRover()">⏹</button>
+            <button onmousedown="startCmd('right')" onmouseup="stopRover()" ontouchstart="startCmd('right')" ontouchend="stopRover()">➡</button>
           </div>
           <div class="row">
-            <button onclick="sendCmd('backward')">⬇</button>
+            <button onmousedown="startCmd('backward')" onmouseup="stopRover()" ontouchstart="startCmd('backward')" ontouchend="stopRover()">⬇</button>
           </div>
         </div>
       </div>
