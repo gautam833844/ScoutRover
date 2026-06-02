@@ -304,16 +304,38 @@ function showSaveStatus(message, type) {
   var statusElement = document.getElementById("save-status");
   statusElement.textContent = message;
   statusElement.style.display = "block";
+  statusElement.style.border = "1px solid";
 
   if (type === "success") {
-    statusElement.style.background = "#d1fae5";
-    statusElement.style.color = "#065f46";
+    statusElement.style.background = "#ecfdf5";
+    statusElement.style.color = "#047857";
+    statusElement.style.borderColor = "#a7f3d0";
   } else if (type === "error") {
-    statusElement.style.background = "#fee2e2";
-    statusElement.style.color = "#991b1b";
+    statusElement.style.background = "#fef2f2";
+    statusElement.style.color = "#b91c1c";
+    statusElement.style.borderColor = "#fecaca";
   } else if (type === "info") {
-    statusElement.style.background = "#dbeafe";
-    statusElement.style.color = "#0c2d6b";
+    statusElement.style.background = "#eff6ff";
+    statusElement.style.color = "#0c4a6e";
+    statusElement.style.borderColor = "#bae6fd";
+  }
+}
+
+function downloadMap() {
+  var canvas = document.getElementById("map-canvas");
+  if (!canvas) {
+    console.warn("Map canvas not found");
+    return;
+  }
+
+  try {
+    var link = document.createElement("a");
+    link.download = "rover_map.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    console.log("Map downloaded as rover_map.png");
+  } catch (error) {
+    console.error("Error downloading map:", error);
   }
 }
 

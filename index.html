@@ -64,8 +64,11 @@
         >
           Last updated: Never
         </div>
-        <button onclick="saveMap()" style="margin-top: 12px; width: 100%; padding: 8px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 500;">💾 Save Map</button>
-        <div id="save-status" style="margin-top: 8px; padding: 8px; text-align: center; border-radius: 4px; display: none; font-size: 12px;"></div>
+        <div class="map-actions">
+          <button class="map-btn save" onclick="saveMap()">💾 Save Map</button>
+          <button class="map-btn download" onclick="downloadMap()">⬇ Download Map</button>
+        </div>
+        <div id="save-status" style="margin-top: 12px; padding: 10px 12px; text-align: center; border-radius: 6px; display: none; font-size: 13px; font-weight: 500;"></div>
       </div>
 
       <!-- Controls Card -->
