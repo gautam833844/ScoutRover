@@ -14,21 +14,38 @@
     <!-- Header -->
     <header class="header">
       <div class="header-left">
-        <svg class="logo-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-          <!-- Hexagon background -->
-          <path d="M50 5 L85 27 L85 72 L50 95 L15 72 L15 27 Z" fill="none" stroke="#2c3e50" stroke-width="3" stroke-linejoin="round"/>
-          <!-- Grid pattern -->
-          <line x1="30" y1="30" x2="70" y2="30" stroke="#2c3e50" stroke-width="1.5" opacity="0.3"/>
-          <line x1="25" y1="50" x2="75" y2="50" stroke="#2c3e50" stroke-width="1.5" opacity="0.3"/>
-          <line x1="30" y1="70" x2="70" y2="70" stroke="#2c3e50" stroke-width="1.5" opacity="0.3"/>
-          <!-- A letter -->
-          <text x="50" y="60" font-size="40" font-weight="700" text-anchor="middle" fill="#2c3e50" font-family="Arial">A</text>
-          <!-- WiFi symbol -->
-          <g transform="translate(65, 25)">
-            <circle cx="0" cy="0" r="3" fill="#ff9500"/>
-            <path d="M -8 2 Q -8 8 0 10 Q 8 8 8 2" stroke="#ff9500" stroke-width="2" fill="none"/>
-            <path d="M -12 -2 Q -15 5 0 18 Q 15 5 12 -2" stroke="#ff9500" stroke-width="2" fill="none" opacity="0.6"/>
+        <svg class="logo-svg" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+          <!-- Outer Hexagon -->
+          <path d="M60 10 L105 35 L105 85 L60 110 L15 85 L15 35 Z" fill="none" stroke="#2c3e50" stroke-width="4" stroke-linejoin="round"/>
+          
+          <!-- Grid pattern inside hexagon -->
+          <path d="M40 45 L80 45" stroke="#2c3e50" stroke-width="2" opacity="0.4"/>
+          <path d="M30 60 L90 60" stroke="#2c3e50" stroke-width="2" opacity="0.4"/>
+          <path d="M40 75 L80 75" stroke="#2c3e50" stroke-width="2" opacity="0.4"/>
+          
+          <!-- Hexagon grid sections -->
+          <path d="M60 35 L75 45 L75 65 L60 75 L45 65 L45 45 Z" fill="none" stroke="#2c3e50" stroke-width="1.5" opacity="0.3"/>
+          <path d="M85 50 L95 57 L95 75 L85 82 L75 75 L75 57 Z" fill="none" stroke="#2c3e50" stroke-width="1.5" opacity="0.3"/>
+          <path d="M25 50 L35 57 L35 75 L25 82 L15 75 L15 57 Z" fill="none" stroke="#2c3e50" stroke-width="1.5" opacity="0.3"/>
+          
+          <!-- Central A Letter -->
+          <text x="60" y="72" font-size="56" font-weight="900" text-anchor="middle" fill="#2c3e50" font-family="Arial, sans-serif">A</text>
+          
+          <!-- WiFi Signal (orange) -->
+          <g transform="translate(25, 30)">
+            <!-- WiFi dot -->
+            <circle cx="0" cy="0" r="3.5" fill="#ff9500"/>
+            <!-- First wave -->
+            <path d="M -10 3 Q -10 10 0 12 Q 10 10 10 3" stroke="#ff9500" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <!-- Second wave -->
+            <path d="M -16 -2 Q -20 8 0 18 Q 20 8 16 -2" stroke="#ff9500" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.7"/>
           </g>
+          
+          <!-- Connection nodes (orange) -->
+          <circle cx="40" cy="50" r="4" fill="#ff9500"/>
+          <circle cx="80" cy="50" r="4" fill="#ff9500"/>
+          <circle cx="50" cy="85" r="4" fill="#ff9500"/>
+          <circle cx="70" cy="85" r="4" fill="#ff9500"/>
         </svg>
         <h1 class="header-title">ATLAS</h1>
       </div>
