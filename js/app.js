@@ -1,4 +1,3 @@
-
 var ros = null;
 var cmdVel = null;
 var mapListener = null;
