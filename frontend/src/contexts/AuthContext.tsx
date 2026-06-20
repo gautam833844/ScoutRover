@@ -11,6 +11,7 @@ interface AuthContextType extends AuthState {
   resetPassword: (email: string) => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  uploadAvatar: (formData: FormData) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -62,9 +63,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await authService.changePassword(state.user.id, currentPassword, newPassword);
   }, [state.user]);
 
+  const uploadAvatar = useCallback(async (formData: FormData) => {
+    if (!state.user) throw new Error('Not authenticated');
+    const user = await authService.uploadAvatar(formData);
+    setState(prev => ({ ...prev, user }));
+  }, [state.user]);
+
   return (
     <AuthContext.Provider value={{
-      ...state, login, register, logout, resetPassword, updateProfile, changePassword,
+      ...state, login, register, logout, resetPassword, updateProfile, changePassword, uploadAvatar,
     }}>
       {children}
     </AuthContext.Provider>

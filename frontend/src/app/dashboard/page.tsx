@@ -8,11 +8,12 @@ import {
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { Button, Badge, Breadcrumb } from '@/components/ui';
-import { StatCard, ActivityCard, LinkCard } from '@/components/cards';
+import { StatCard, LinkCard } from '@/components/cards';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { ROUTES, ROS_CONFIG } from '@/constants';
 import { timeAgo } from '@/utils/helpers';
+import mapService from '@/services/mapService';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -20,10 +21,15 @@ export default function DashboardPage() {
   const [rosStatus, setRosStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [lastMapUpdate, setLastMapUpdate] = useState<string | null>(null);
   const [currentDirection, setCurrentDirection] = useState<string | null>(null);
+  const [savingMap, setSavingMap] = useState(false);
+  
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rosRef = useRef<any>(null);
   const cmdVelRef = useRef<any>(null);
   const cmdIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Ref to hold the most recent occupancy grid data structure from ROS
+  const lastMapMessageRef = useRef<any>(null);
 
   // ROS Connection
   const connectToROS = useCallback(() => {
@@ -38,16 +44,18 @@ export default function DashboardPage() {
         setRosStatus('connected');
         info('Connected', 'ROS bridge connected successfully');
 
-        // Setup topics
+        // Setup velocity topics
         cmdVelRef.current = new (window as any).ROSLIB.Topic({
           ros, name: ROS_CONFIG.cmdVelTopic, messageType: 'geometry_msgs/Twist',
         });
 
+        // Setup LiDAR mapping listeners
         const mapListener = new (window as any).ROSLIB.Topic({
           ros, name: ROS_CONFIG.mapTopic, messageType: 'nav_msgs/OccupancyGrid',
           throttle_rate: ROS_CONFIG.mapThrottleRate, queue_length: 1,
         });
         mapListener.subscribe((message: any) => {
+          lastMapMessageRef.current = message;
           drawMap(message);
           setLastMapUpdate(new Date().toISOString());
         });
@@ -65,7 +73,7 @@ export default function DashboardPage() {
     }
   }, [info]);
 
-  // Draw LiDAR Map
+  // Draw LiDAR Map from ROS occupancy grids
   const drawMap = useCallback((map: any) => {
     const canvas = canvasRef.current;
     if (!canvas || !map?.info || !map?.data) return;
@@ -94,11 +102,18 @@ export default function DashboardPage() {
         const mapX = Math.floor(x / scale);
         const mapY = Math.floor(y / scale);
         if (mapX >= width || mapY >= height) continue;
+        
         const cell = map.data[mapY * width + mapX];
         let r = 26, g = 26, b = 46;
-        if (cell === 0) { r = 30; g = 41; b = 59; }
-        else if (cell > 0) { r = 124; g = 58; b = 237; }
-        else { r = 15; g = 23; b = 42; }
+        
+        if (cell === 0) {
+          r = 30; g = 41; b = 59; // empty/free space (dark slate)
+        } else if (cell > 0) {
+          r = 124; g = 58; b = 237; // obstacles/walls (purple)
+        } else {
+          r = 15; g = 23; b = 42; // unknown (near-black)
+        }
+        
         const idx = (y * dw + x) * 4;
         imageData.data[idx] = r;
         imageData.data[idx + 1] = g;
@@ -109,7 +124,7 @@ export default function DashboardPage() {
     ctx.putImageData(imageData, 0, 0);
   }, []);
 
-  // Rover Movement
+  // Rover Movement commands
   const sendCmd = useCallback((direction: string) => {
     if (!cmdVelRef.current || !rosRef.current?.isConnected) return;
     const twist = new (window as any).ROSLIB.Message({
@@ -137,7 +152,7 @@ export default function DashboardPage() {
     setCurrentDirection(null);
   }, [sendCmd]);
 
-  // Keyboard controls
+  // Keyboard controls key bindings
   useEffect(() => {
     const keyMap: Record<string, string> = {
       ArrowUp: 'forward', ArrowDown: 'backward', ArrowLeft: 'left', ArrowRight: 'right',
@@ -160,10 +175,39 @@ export default function DashboardPage() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = 'rover_map.png';
+    link.download = 'rover_lidar_map.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
-    success('Downloaded', 'Map saved as rover_map.png');
+    success('Downloaded', 'Map image download triggered.');
+  };
+
+  const saveMapToDatabase = async () => {
+    const gridMsg = lastMapMessageRef.current;
+    if (!gridMsg || !gridMsg.info || !gridMsg.data) {
+      showError('No map data', 'Awaiting live LiDAR occupancy grid messages from ROS bridge.');
+      return;
+    }
+
+    const name = prompt('Name this map scan:', `LiDAR Scan - ${new Date().toLocaleTimeString()}`);
+    if (!name) return;
+
+    setSavingMap(true);
+    try {
+      await mapService.saveMap({
+        name,
+        width: gridMsg.info.width,
+        height: gridMsg.info.height,
+        resolution: gridMsg.info.resolution,
+        originX: gridMsg.info.origin?.position?.x || 0,
+        originY: gridMsg.info.origin?.position?.y || 0,
+        gridData: Array.from(gridMsg.data),
+      });
+      success('Map saved', `LiDAR scan map '${name}' successfully stored in MongoDB.`);
+    } catch (err: any) {
+      showError('Failed to save', err.message || 'Could not save map scan to server');
+    } finally {
+      setSavingMap(false);
+    }
   };
 
   const controlBtn = (dir: string, icon: React.ReactNode, label: string) => (
@@ -246,6 +290,17 @@ export default function DashboardPage() {
               </Badge>
             </div>
             <div className="flex items-center gap-2">
+              {lastMapUpdate && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={saveMapToDatabase}
+                  loading={savingMap}
+                  icon={<Save className="w-4 h-4" />}
+                >
+                  Save to DB
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={downloadMap} icon={<Download className="w-4 h-4" />}>
                 Download
               </Button>

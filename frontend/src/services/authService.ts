@@ -1,146 +1,133 @@
 import { User, LoginCredentials, RegisterData } from '@/types';
-import { AUTH_CONFIG } from '@/constants';
-import { generateId, getFromStorage, setToStorage, removeFromStorage } from '@/utils/helpers';
+import { apiClient } from './apiClient';
 
-interface StoredUser extends User {
-  passwordHash: string;
+interface BackendUser {
+  id: string;
+  email: string;
+  role: string;
+  firstName: string;
+  lastName: string;
+  avatar?: string;
+  bio?: string;
+  location?: string;
+  phone?: string;
+  lastLogin?: string;
+  createdAt: string;
 }
 
-// ========== AUTH SERVICE ==========
+function mapUserToFrontend(user: BackendUser): User {
+  return {
+    id: user.id,
+    name: `${user.firstName} ${user.lastName}`.trim(),
+    email: user.email,
+    role: user.role,
+    avatar: user.avatar || '',
+    bio: user.bio || '',
+    location: user.location || '',
+    phone: user.phone || '',
+    joinedAt: user.createdAt,
+    lastLogin: user.lastLogin,
+  };
+}
+
 class AuthService {
-  private getUsers(): StoredUser[] {
-    return getFromStorage<StoredUser[]>(AUTH_CONFIG.storageKey, []);
-  }
-
-  private saveUsers(users: StoredUser[]): void {
-    setToStorage(AUTH_CONFIG.storageKey, users);
-  }
-
-  private hashPassword(password: string): string {
-    // Simple hash for demo — in production use bcrypt on a server
-    return btoa(encodeURIComponent(password));
-  }
-
-  private verifyPassword(password: string, hash: string): boolean {
-    return this.hashPassword(password) === hash;
-  }
-
-  private createSession(user: User): void {
-    const session = {
-      user,
-      expiresAt: Date.now() + AUTH_CONFIG.sessionDuration,
-    };
-    setToStorage(AUTH_CONFIG.sessionKey, session);
-  }
-
   async register(data: RegisterData): Promise<User> {
-    // Simulate network delay
-    await new Promise(r => setTimeout(r, 800));
+    const parts = data.name.trim().split(' ');
+    const firstName = parts[0] || 'User';
+    const lastName = parts.slice(1).join(' ') || 'Name';
 
-    const users = this.getUsers();
-    if (users.find(u => u.email.toLowerCase() === data.email.toLowerCase())) {
-      throw new Error('An account with this email already exists');
-    }
+    await apiClient.post<any>('/auth/register', {
+      email: data.email,
+      password: data.password,
+      firstName,
+      lastName,
+    });
 
-    const user: StoredUser = {
-      id: generateId(),
-      name: data.name.trim(),
-      email: data.email.toLowerCase().trim(),
-      passwordHash: this.hashPassword(data.password),
-      joinedAt: new Date().toISOString(),
-      avatar: '',
-      bio: '',
-      location: '',
-      phone: '',
-    };
-
-    users.push(user);
-    this.saveUsers(users);
-
-    const { passwordHash: _, ...safeUser } = user;
-    this.createSession(safeUser);
-    return safeUser;
+    // Auto log in after successful registration
+    return this.login({ email: data.email, password: data.password });
   }
 
   async login(credentials: LoginCredentials): Promise<User> {
-    await new Promise(r => setTimeout(r, 600));
+    const response = await apiClient.post<{
+      user: BackendUser;
+      accessToken: string;
+      refreshToken: string;
+    }>('/auth/login', credentials);
 
-    const users = this.getUsers();
-    const user = users.find(
-      u => u.email.toLowerCase() === credentials.email.toLowerCase()
-    );
+    const { user, accessToken, refreshToken } = response;
+    const frontendUser = mapUserToFrontend(user);
 
-    if (!user || !this.verifyPassword(credentials.password, user.passwordHash)) {
-      throw new Error('Invalid email or password');
+    localStorage.setItem('scoutrover_token', accessToken);
+    localStorage.setItem('scoutrover_refresh_token', refreshToken);
+    localStorage.setItem('scoutrover_session', JSON.stringify(frontendUser));
+
+    return frontendUser;
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await apiClient.post('/auth/logout', {});
+    } catch {
+      // Fail silently on server-side logout
+    } finally {
+      localStorage.removeItem('scoutrover_token');
+      localStorage.removeItem('scoutrover_refresh_token');
+      localStorage.removeItem('scoutrover_session');
     }
-
-    // Update last login
-    user.lastLogin = new Date().toISOString();
-    this.saveUsers(users);
-
-    const { passwordHash: _, ...safeUser } = user;
-    this.createSession(safeUser);
-    return safeUser;
   }
 
   async resetPassword(email: string): Promise<void> {
-    await new Promise(r => setTimeout(r, 1000));
-
-    const users = this.getUsers();
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!user) {
-      // Don't reveal if user exists — just succeed silently
-      return;
-    }
-    // In production, send an email with a reset link
-  }
-
-  logout(): void {
-    removeFromStorage(AUTH_CONFIG.sessionKey);
+    await apiClient.post('/auth/forgot-password', { email });
   }
 
   getCurrentUser(): User | null {
-    const session = getFromStorage<{ user: User; expiresAt: number } | null>(
-      AUTH_CONFIG.sessionKey,
-      null
-    );
-    if (!session) return null;
-    if (Date.now() > session.expiresAt) {
-      this.logout();
+    if (typeof window === 'undefined') return null;
+    const sessionStr = localStorage.getItem('scoutrover_session');
+    if (!sessionStr) return null;
+    try {
+      return JSON.parse(sessionStr) as User;
+    } catch {
       return null;
     }
-    return session.user;
+  }
+
+  async fetchCurrentUser(): Promise<User> {
+    const user = await apiClient.get<BackendUser>('/auth/me');
+    const frontendUser = mapUserToFrontend(user);
+    localStorage.setItem('scoutrover_session', JSON.stringify(frontendUser));
+    return frontendUser;
   }
 
   async updateProfile(userId: string, updates: Partial<User>): Promise<User> {
-    await new Promise(r => setTimeout(r, 500));
+    const backendUpdates: any = { ...updates };
+    
+    if (updates.name) {
+      const parts = updates.name.trim().split(' ');
+      backendUpdates.firstName = parts[0] || '';
+      backendUpdates.lastName = parts.slice(1).join(' ') || '';
+      delete backendUpdates.name;
+    }
 
-    const users = this.getUsers();
-    const index = users.findIndex(u => u.id === userId);
-    if (index === -1) throw new Error('User not found');
-
-    const updated = { ...users[index], ...updates };
-    users[index] = updated;
-    this.saveUsers(users);
-
-    const { passwordHash: _, ...safeUser } = updated;
-    this.createSession(safeUser);
-    return safeUser;
+    const user = await apiClient.put<BackendUser>('/users/profile', backendUpdates);
+    const frontendUser = mapUserToFrontend(user);
+    localStorage.setItem('scoutrover_session', JSON.stringify(frontendUser));
+    return frontendUser;
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
-    await new Promise(r => setTimeout(r, 500));
+    await apiClient.put('/users/change-password', {
+      currentPassword,
+      newPassword,
+    });
+  }
 
-    const users = this.getUsers();
-    const user = users.find(u => u.id === userId);
-    if (!user) throw new Error('User not found');
-    if (!this.verifyPassword(currentPassword, user.passwordHash)) {
-      throw new Error('Current password is incorrect');
-    }
-
-    user.passwordHash = this.hashPassword(newPassword);
-    this.saveUsers(users);
+  async uploadAvatar(formData: FormData): Promise<User> {
+    const user = await apiClient.upload<BackendUser>('/users/avatar', formData);
+    const frontendUser = mapUserToFrontend(user);
+    localStorage.setItem('scoutrover_session', JSON.stringify(frontendUser));
+    return frontendUser;
   }
 }
 
 export const authService = new AuthService();
+export default authService;

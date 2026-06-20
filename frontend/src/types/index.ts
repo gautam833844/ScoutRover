@@ -3,6 +3,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  role?: string;
   avatar?: string;
   bio?: string;
   location?: string;
@@ -74,6 +75,8 @@ export interface MapRoute {
   points: Array<{ lat: number; lng: number }>;
   distance: number;
   color?: string;
+  name?: string;
+  mapId?: string;
 }
 
 // ========== QR TYPES ==========
