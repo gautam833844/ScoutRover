@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Wifi, WifiOff, Map, QrCode, Activity, Clock, ChevronUp, ChevronDown,
   ChevronLeft, ChevronRight, Square, Download, Save, Compass, Gauge,
-  MapPin, Zap, BarChart3
+  MapPin, Zap, BarChart3, UploadCloud
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { Button, Badge, Breadcrumb } from '@/components/ui';
@@ -14,6 +14,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { ROUTES, ROS_CONFIG } from '@/constants';
 import { timeAgo } from '@/utils/helpers';
 import mapService from '@/services/mapService';
+import apiClient from '@/services/apiClient';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -22,6 +23,7 @@ export default function DashboardPage() {
   const [lastMapUpdate, setLastMapUpdate] = useState<string | null>(null);
   const [currentDirection, setCurrentDirection] = useState<string | null>(null);
   const [savingMap, setSavingMap] = useState(false);
+  const [exportingToJetson, setExportingToJetson] = useState(false);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rosRef = useRef<any>(null);
@@ -31,7 +33,17 @@ export default function DashboardPage() {
   // Ref to hold the most recent occupancy grid data structure from ROS
   const lastMapMessageRef = useRef<any>(null);
 
-
+  // Read mapping config from localStorage (set in Settings)
+  const [mappingConfig, setMappingConfig] = useState({ algoName: 'SLAM Toolbox', mapTopic: '/map' });
+  useEffect(() => {
+    try {
+      const cfg = JSON.parse(localStorage.getItem('scoutrover_mapping_config') || '{}');
+      setMappingConfig({
+        algoName: cfg.algoName || 'SLAM Toolbox',
+        mapTopic: cfg.mapTopic || '/map',
+      });
+    } catch { /* use defaults */ }
+  }, []);
 
   // Draw LiDAR Map from ROS occupancy grids
   const drawMap = useCallback((map: any) => {
@@ -102,9 +114,10 @@ export default function DashboardPage() {
           ros, name: ROS_CONFIG.cmdVelTopic, messageType: 'geometry_msgs/Twist',
         });
 
-        // Setup LiDAR mapping listeners
+        // Setup LiDAR mapping listeners — use topic from saved mapping config
+        const mapTopic = mappingConfig.mapTopic || ROS_CONFIG.mapTopic;
         const mapListener = new Topic({
-          ros, name: ROS_CONFIG.mapTopic, messageType: 'nav_msgs/OccupancyGrid',
+          ros, name: mapTopic, messageType: 'nav_msgs/OccupancyGrid',
           throttle_rate: ROS_CONFIG.mapThrottleRate, queue_length: 1,
         });
         mapListener.subscribe((message: any) => {
@@ -218,6 +231,42 @@ export default function DashboardPage() {
     }
   };
 
+  const exportMapToJetsonDirect = async () => {
+    const gridMsg = lastMapMessageRef.current;
+    if (!gridMsg || !gridMsg.info || !gridMsg.data) {
+      showError('No map data', 'Awaiting live LiDAR occupancy grid messages from ROS bridge.');
+      return;
+    }
+
+    const name = prompt('Name this map for Jetson export:', `LiDAR Export - ${new Date().toLocaleTimeString()}`);
+    if (!name) return;
+
+    setExportingToJetson(true);
+    try {
+      // 1. Save map to DB first
+      const savedMap = await mapService.saveMap({
+        name,
+        width: gridMsg.info.width,
+        height: gridMsg.info.height,
+        resolution: gridMsg.info.resolution,
+        originX: gridMsg.info.origin?.position?.x || 0,
+        originY: gridMsg.info.origin?.position?.y || 0,
+        gridData: Array.from(gridMsg.data),
+      });
+
+      // 2. Call backend export to Jetson
+      await apiClient.post('/jetson/export', {
+        mapId: savedMap.id,
+      });
+
+      success('Export Successful', `Saved map "${name}" to DB and exported to Jetson filesystem.`);
+    } catch (err: any) {
+      showError('Export Failed', err.message || 'Could not export live scan to Jetson');
+    } finally {
+      setExportingToJetson(false);
+    }
+  };
+
   const controlBtn = (dir: string, icon: React.ReactNode, label: string) => (
     <button
       onMouseDown={() => startCmd(dir)}
@@ -291,23 +340,40 @@ export default function DashboardPage() {
         {/* Map Panel */}
         <div className="lg:col-span-2 card">
           <div className="px-5 py-4 border-b border-surface-200 dark:border-white/[0.08] flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-surface-900 dark:text-white">Live LiDAR Map</h3>
               <Badge variant={rosStatus === 'connected' ? 'success' : 'danger'} dot>
                 {rosStatus === 'connected' ? 'Live' : 'Offline'}
               </Badge>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 font-medium">
+                {mappingConfig.algoName}
+              </span>
+              <span className="text-[10px] text-surface-400 font-mono hidden sm:inline">
+                {mappingConfig.mapTopic}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               {lastMapUpdate && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={saveMapToDatabase}
-                  loading={savingMap}
-                  icon={<Save className="w-4 h-4" />}
-                >
-                  Save to DB
-                </Button>
+                <>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={saveMapToDatabase}
+                    loading={savingMap}
+                    icon={<Save className="w-4 h-4" />}
+                  >
+                    Save to DB
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={exportMapToJetsonDirect}
+                    loading={exportingToJetson}
+                    icon={<UploadCloud className="w-4 h-4" />}
+                  >
+                    Export to Jetson
+                  </Button>
+                </>
               )}
               <Button variant="ghost" size="sm" onClick={downloadMap} icon={<Download className="w-4 h-4" />}>
                 Download

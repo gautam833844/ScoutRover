@@ -2,31 +2,147 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Map as MapIcon, Satellite, Layers, Search, Navigation, MapPin,
+  Map as MapIcon, Layers, Search, Navigation, MapPin,
   Plus, Minus, Crosshair, Route, Trash2, Ruler, X, Save, FolderPlus,
-  QrCode
+  QrCode, FileDown, FileCode, FileText, Package, Wifi, WifiOff, UploadCloud, Activity, Compass
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { Button, Breadcrumb, SearchBar, Badge } from '@/components/ui';
 import { useToast } from '@/contexts/ToastContext';
-import { MAP_CONFIG } from '@/constants';
-import { MapMode, MapMarker, MapRoute } from '@/types';
-import { haversineDistance, formatDistance } from '@/utils/helpers';
+import { ROS_CONFIG } from '@/constants';
+import { MapMarker, MapRoute } from '@/types';
+import { formatDistance } from '@/utils/helpers';
 import mapService, { SavedMap } from '@/services/mapService';
+import apiClient from '@/services/apiClient';
+import LidarCanvasMap from '@/components/maps/LidarCanvasMap';
+
+// ─── Cartesian Distance Calculator for 2D Grid Maps ───────────────────────
+function cartesianDistance(p1: { lat: number; lng: number }, p2: { lat: number; lng: number }) {
+  const dx = p2.lng - p1.lng; // lng = x
+  const dy = p2.lat - p1.lat; // lat = y
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+// ─── YAML/ROS Export helpers ─────────────────────────────────────────────
+function buildYAML(map: SavedMap): string {
+  const lines = [
+    `# ScoutRover Map Export — ${map.name}`,
+    `# Generated: ${new Date().toISOString()}`,
+    ``,
+    `map:`,
+    `  name: "${map.name}"`,
+    `  id: "${map.id}"`,
+    `  width: ${map.width}`,
+    `  height: ${map.height}`,
+    `  resolution: ${map.resolution}  # meters/pixel`,
+    `  origin:`,
+    `    x: ${map.originX}`,
+    `    y: ${map.originY}`,
+    `    theta: 0.0`,
+    `  negate: 0`,
+    `  occupied_thresh: 0.65`,
+    `  free_thresh: 0.196`,
+    `  data_length: ${(map.gridData || []).length}`,
+  ];
+  return lines.join('\n');
+}
+
+function buildRosYAML(map: SavedMap, pgmFilename: string): string {
+  // Standard ROS map_saver YAML format
+  return [
+    `image: ${pgmFilename}`,
+    `resolution: ${map.resolution}`,
+    `origin: [${map.originX}, ${map.originY}, 0.0]`,
+    `negate: 0`,
+    `occupied_thresh: 0.65`,
+    `free_thresh: 0.196`,
+  ].join('\n');
+}
+
+function buildPGM(map: SavedMap): Blob {
+  const w = map.width || 20;
+  const h = map.height || 20;
+  const data = map.gridData || Array(w * h).fill(0);
+  const pixels = data.map((v: number) => {
+    if (v === -1) return 205;   // unknown → grey
+    if (v === 0)  return 254;   // free → white
+    return 0;                   // occupied → black
+  });
+  const header = `P2\n# ScoutRover Map: ${map.name}\n${w} ${h}\n255\n`;
+  const body = [];
+  for (let y = 0; y < h; y++) {
+    body.push(pixels.slice(y * w, (y + 1) * w).join(' '));
+  }
+  return new Blob([header + body.join('\n')], { type: 'text/plain' });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
 
 function MapComponent() {
   const { success, error: showError, info } = useToast();
   
-  // Selection States
+  // Selection and DB States
   const [maps, setMaps] = useState<SavedMap[]>([]);
   const [selectedMap, setSelectedMap] = useState<SavedMap | null>(null);
   const [newMapName, setNewMapName] = useState('');
+  const [markers, setMarkers] = useState<MapMarker[]>([]);
+  const [savedRoutes, setSavedRoutes] = useState<MapRoute[]>([]);
+
+  // Canvas interaction states
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [isRouteMode, setIsRouteMode] = useState(false);
+  const [isMeasureMode, setIsMeasureMode] = useState(false);
+  const [centerOn, setCenterOn] = useState<{ x: number; y: number; timestamp: number } | null>(null);
+
+  // Dynamic Route planning path
+  const [routePoints, setRoutePoints] = useState<Array<{ lat: number; lng: number }>>([]);
+  const [routeDistance, setRouteDistance] = useState(0);
+
+  // Jetson Push Export States
+  const [exportModalMap, setExportModalMap] = useState<SavedMap | null>(null);
+  const [customExportPath, setCustomExportPath] = useState('/home/jetson/maps');
+  const [pushingToJetson, setPushingToJetson] = useState(false);
   
   // QR Code Modal States
   const [qrModalOpen, setQrModalOpen] = useState(false);
   const [qrModalTitle, setQrModalTitle] = useState('');
   const [qrModalContent, setQrModalContent] = useState('');
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Live ROS teleoperation states
+  const [isLiveMode, setIsLiveMode] = useState(false);
+  const [rosStatus, setRosStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [lastMapUpdate, setLastMapUpdate] = useState<string | null>(null);
+  const [liveGrid, setLiveGrid] = useState<{
+    width: number;
+    height: number;
+    resolution: number;
+    originX: number;
+    originY: number;
+    gridData: number[];
+  } | null>(null);
+
+  const rosRef = useRef<any>(null);
+  const mapListenerRef = useRef<any>(null);
+
+  // Mapping configurations loaded from settings
+  const [mappingConfig, setMappingConfig] = useState({ algoName: 'SLAM Toolbox', mapTopic: '/map' });
+
+  useEffect(() => {
+    try {
+      const cfg = JSON.parse(localStorage.getItem('scoutrover_mapping_config') || '{}');
+      setMappingConfig({
+        algoName: cfg.algoName || 'SLAM Toolbox',
+        mapTopic: cfg.mapTopic || '/map',
+      });
+    } catch { /* defaults */ }
+  }, []);
 
   // Generate QR inside modal whenever the content changes or modal opens
   useEffect(() => {
@@ -48,25 +164,8 @@ function MapComponent() {
     };
     generateModalQR();
   }, [qrModalOpen, qrModalContent]);
-  
-  const [mode, setMode] = useState<MapMode>('standard');
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [markers, setMarkers] = useState<MapMarker[]>([]);
-  const [savedRoutes, setSavedRoutes] = useState<MapRoute[]>([]);
-  
-  // Interactive drawing states
-  const [routePoints, setRoutePoints] = useState<Array<{ lat: number; lng: number }>>([]);
-  const [routeDistance, setRouteDistance] = useState(0);
-  const [isRouteMode, setIsRouteMode] = useState(false);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  
-  const mapRef = useRef<any>(null);
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const tileLayerRef = useRef<any>(null);
-  const markersLayerRef = useRef<any>(null);
-  const routeLayerRef = useRef<any>(null);
-  const userMarkerRef = useRef<any>(null);
-  const leafletRef = useRef<any>(null);
 
   // 1. Fetch maps on mount
   const loadMaps = useCallback(async (selectId?: string) => {
@@ -81,15 +180,25 @@ function MapComponent() {
           setSelectedMap(list[0]);
         }
       } else {
-        // Automatically provision default laboratory map if none exist
-        const defaultGrid = Array(400).fill(0);
+        // provision default laboratory map if none exist (200x200 room sizing)
+        const defaultGrid = Array(200 * 200).fill(-1); // fill unknown
+        // create small rectangular room outline in coordinates
+        for (let r = 20; r < 180; r++) {
+          for (let c = 20; c < 180; c++) {
+            if (r === 20 || r === 179 || c === 20 || c === 179) {
+              defaultGrid[r * 200 + c] = 100; // Obstacle wall
+            } else {
+              defaultGrid[r * 200 + c] = 0; // Empty path
+            }
+          }
+        }
         const map = await mapService.saveMap({
-          name: 'Research Lab - Sector Alpha',
-          width: 20,
-          height: 20,
+          name: 'Research Lab - Occupancy Grid',
+          width: 200,
+          height: 200,
           resolution: 0.05,
-          originX: -0.5,
-          originY: -0.5,
+          originX: -5.0,
+          originY: -5.0,
           gridData: defaultGrid,
         });
         setMaps([map]);
@@ -109,17 +218,29 @@ function MapComponent() {
     e.preventDefault();
     if (!newMapName.trim()) return;
     try {
-      const blankGrid = Array(400).fill(0);
+      // Create empty 200x200 cell grid (10mx10m room)
+      const blankGrid = Array(200 * 200).fill(-1);
+      // boundary walls
+      for (let r = 0; r < 200; r++) {
+        for (let c = 0; c < 200; c++) {
+          if (r === 0 || r === 199 || c === 0 || c === 199) {
+            blankGrid[r * 200 + c] = 100;
+          } else if (r > 10 && r < 190 && c > 10 && c < 190) {
+            blankGrid[r * 200 + c] = 0;
+          }
+        }
+      }
+
       const map = await mapService.saveMap({
         name: newMapName.trim(),
-        width: 30,
-        height: 30,
+        width: 200,
+        height: 200,
         resolution: 0.05,
-        originX: -0.5,
-        originY: -0.5,
+        originX: -5.0,
+        originY: -5.0,
         gridData: blankGrid,
       });
-      success('Map created', `Created map: ${map.name}`);
+      success('Map created', `Created metric LiDAR grid map: ${map.name}`);
       setNewMapName('');
       loadMaps(map.id);
     } catch (err: any) {
@@ -147,7 +268,7 @@ function MapComponent() {
       const routeList = await mapService.getRoutes(selectedMap.id);
       setSavedRoutes(routeList);
     } catch (err: any) {
-      showError('Error', 'Failed to load routes and markers for this map');
+      showError('Error', 'Failed to load routes and waypoints');
     }
   }, [selectedMap, showError]);
 
@@ -155,82 +276,85 @@ function MapComponent() {
     loadMarkersAndRoutes();
   }, [loadMarkersAndRoutes]);
 
+  // Connect to live ROS mapping scan
+  const connectToROS = useCallback(async () => {
+    setRosStatus('connecting');
+    try {
+      const { Ros, Topic } = await import('roslib');
+      const ros = new Ros({ url: ROS_CONFIG.url });
+      rosRef.current = ros;
 
+      ros.on('connection', () => {
+        setRosStatus('connected');
+        info('ROS Connected', 'ROS bridge successfully hooked');
 
-  // Sync route mode state to global window context for leaflet listener
-  useEffect(() => {
-    (window as any).__routeMode = isRouteMode;
-  }, [isRouteMode]);
-
-  // Re-draw saved markers & routes on map whenever markers or routes list updates
-  useEffect(() => {
-    if (!mapRef.current || !leafletRef.current || !markersLayerRef.current) return;
-    const L = leafletRef.current;
-    
-    // Clear layers
-    markersLayerRef.current.clearLayers();
-    
-    // Plot markers
-    markers.forEach((marker) => {
-      L.marker([marker.lat, marker.lng])
-        .bindPopup(`<b>${marker.title}</b><br>${marker.description || 'No description'}<br>Lat: ${marker.lat.toFixed(5)}<br>Lng: ${marker.lng.toFixed(5)}`)
-        .addTo(markersLayerRef.current);
-    });
-  }, [markers]);
-
-  useEffect(() => {
-    if (!mapRef.current || !leafletRef.current || !routeLayerRef.current) return;
-    const L = leafletRef.current;
-    
-    // Clear layers
-    routeLayerRef.current.clearLayers();
-    
-    // Plot saved routes
-    savedRoutes.forEach((route) => {
-      if (route.points.length >= 2) {
-        // Draw polyline
-        L.polyline(route.points.map(p => [p.lat, p.lng]), {
-          color: route.color || '#7c3aed',
-          weight: 4,
-          opacity: 0.7,
-        }).bindPopup(`<b>${route.name}</b><br>Distance: ${formatDistance(route.distance)}`).addTo(routeLayerRef.current);
-        
-        // Draw circles for waypoints
-        route.points.forEach((p) => {
-          L.circleMarker([p.lat, p.lng], {
-            radius: 5,
-            fillColor: route.color || '#7c3aed',
-            fillOpacity: 1,
-            color: '#fff',
-            weight: 1.5,
-          }).addTo(routeLayerRef.current);
+        const mapTopic = mappingConfig.mapTopic || ROS_CONFIG.mapTopic;
+        mapListenerRef.current = new Topic({
+          ros,
+          name: mapTopic,
+          messageType: 'nav_msgs/OccupancyGrid',
+          throttle_rate: 2000,
+          queue_length: 1,
         });
-      }
-    });
-  }, [savedRoutes]);
 
-  // Adjust tile layers on mode change
+        mapListenerRef.current.subscribe((message: any) => {
+          setLiveGrid({
+            width: message.info.width,
+            height: message.info.height,
+            resolution: message.info.resolution,
+            originX: message.info.origin?.position?.x || 0,
+            originY: message.info.origin?.position?.y || 0,
+            gridData: Array.from(message.data),
+          });
+          setLastMapUpdate(new Date().toISOString());
+        });
+      });
+
+      ros.on('error', (err: any) => {
+        setRosStatus('disconnected');
+        showError('ROS Error', `Connection failed at ${ROS_CONFIG.url}`);
+        console.error(err);
+      });
+
+      ros.on('close', () => {
+        setRosStatus('disconnected');
+      });
+    } catch (err) {
+      setRosStatus('disconnected');
+      showError('Import Error', 'Failed to connect to ROS bridge');
+      console.error(err);
+    }
+  }, [info, showError, mappingConfig]);
+
+  const disconnectFromROS = useCallback(() => {
+    if (mapListenerRef.current) {
+      mapListenerRef.current.unsubscribe();
+      mapListenerRef.current = null;
+    }
+    if (rosRef.current) {
+      try { rosRef.current.close(); } catch { }
+      rosRef.current = null;
+    }
+    setRosStatus('disconnected');
+    setLiveGrid(null);
+    setLastMapUpdate(null);
+  }, []);
+
+  // Cleanup ROS connection on unmount
   useEffect(() => {
-    if (!mapRef.current || !tileLayerRef.current || !leafletRef.current) return;
-    const L = leafletRef.current;
-    mapRef.current.removeLayer(tileLayerRef.current);
+    return () => {
+      disconnectFromROS();
+    };
+  }, [disconnectFromROS]);
 
-    const providers = MAP_CONFIG.tileProviders;
-    const provider = mode === 'satellite' ? providers.satellite : providers.standard;
-    tileLayerRef.current = L.tileLayer(provider.url, {
-      attribution: provider.attribution,
-      maxZoom: MAP_CONFIG.maxZoom,
-    }).addTo(mapRef.current);
-  }, [mode]);
-
-  // Add marker via map click prompt
-  const handleMapClickAddMarker = async (lat: number, lng: number) => {
+  // Click on Lidar Canvas coordinates handler
+  const handleMapClickAddMarker = async (x: number, y: number) => {
     if (!selectedMap) {
       info('Select Map', 'Please choose or create a map first');
       return;
     }
     
-    const title = prompt('Enter marker waypoint title:', `Marker ${markers.length + 1}`);
+    const title = prompt('Enter waypoint title:', `Waypoint ${markers.length + 1}`);
     if (!title) return;
     const description = prompt('Enter description (optional):') || '';
 
@@ -239,116 +363,37 @@ function MapComponent() {
         mapId: selectedMap.id,
         title,
         description,
-        lat,
-        lng,
-        color: '#7c3aed',
+        lat: y, // lat represents Cartesian Y
+        lng: x, // lng represents Cartesian X
+        color: '#06b6d4',
       });
       
       setMarkers(prev => [...prev, saved]);
-      success('Marker saved', `Waypoint '${saved.title}' saved to database.`);
+      success('Waypoint saved', `Waypoint '${saved.title}' saved to database.`);
     } catch (err: any) {
-      showError('Failed', err.message || 'Could not save marker');
+      showError('Failed', err.message || 'Could not save waypoint');
     }
   };
 
-  const addRoutePoint = useCallback((lat: number, lng: number) => {
-    if (!routeLayerRef.current || !leafletRef.current) return;
-    const L = leafletRef.current;
-
+  // Add route planner coordinate point clicked
+  const addRoutePoint = useCallback((point: { lat: number; lng: number }) => {
     setRoutePoints(prev => {
-      const newPoints = [...prev, { lat, lng }];
+      const newPoints = [...prev, point];
 
-      // Recalculate distance
+      // Calculate Cartesian distance total
       let dist = 0;
       for (let i = 1; i < newPoints.length; i++) {
-        dist += haversineDistance(newPoints[i - 1].lat, newPoints[i - 1].lng, newPoints[i].lat, newPoints[i].lng);
+        dist += cartesianDistance(newPoints[i - 1], newPoints[i]);
       }
       setRouteDistance(dist);
-
-      // Redraw drawing line overlay
-      routeLayerRef.current.clearLayers();
-      
-      // Keep displaying saved routes too
-      loadMarkersAndRoutes();
-
-      if (newPoints.length >= 2) {
-        L.polyline(newPoints.map(p => [p.lat, p.lng]), {
-          color: '#ef4444', // Red for current planning route
-          weight: 4,
-          opacity: 0.8,
-          dashArray: '10, 6',
-        }).addTo(routeLayerRef.current);
-      }
-
-      newPoints.forEach((p) => {
-        L.circleMarker([p.lat, p.lng], {
-          radius: 6,
-          fillColor: '#ef4444',
-          fillOpacity: 1,
-          color: '#fff',
-          weight: 2,
-        }).addTo(routeLayerRef.current);
-      });
-
       return newPoints;
     });
-  }, [loadMarkersAndRoutes]);
-
-  // Initialize leaflet map
-  useEffect(() => {
-    if (typeof window === 'undefined' || !mapContainerRef.current) return;
-
-    import('leaflet').then((L) => {
-      leafletRef.current = L;
-      
-      // Fix Leaflet marker pathing issue
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
-
-      if (mapRef.current) return; // Prevent double init
-
-      const map = L.map(mapContainerRef.current!, {
-        center: [MAP_CONFIG.defaultCenter.lat, MAP_CONFIG.defaultCenter.lng],
-        zoom: MAP_CONFIG.defaultZoom,
-        zoomControl: false,
-      });
-
-      tileLayerRef.current = L.tileLayer(MAP_CONFIG.tileProviders.standard.url, {
-        attribution: MAP_CONFIG.tileProviders.standard.attribution,
-        maxZoom: MAP_CONFIG.maxZoom,
-      }).addTo(map);
-
-      markersLayerRef.current = L.layerGroup().addTo(map);
-      routeLayerRef.current = L.layerGroup().addTo(map);
-      mapRef.current = map;
-
-      // Click to add marker or route point
-      map.on('click', (e: any) => {
-        const { lat, lng } = e.latlng;
-        if ((window as any).__routeMode) {
-          addRoutePoint(lat, lng);
-        } else {
-          handleMapClickAddMarker(lat, lng);
-        }
-      });
-    });
-
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSaveRoute = async () => {
     if (routePoints.length < 2 || !selectedMap) return;
     
-    const name = prompt('Enter route name:', `Inspection Path ${savedRoutes.length + 1}`);
+    const name = prompt('Enter route configuration name:', `Inspection Path ${savedRoutes.length + 1}`);
     if (!name) return;
 
     try {
@@ -357,11 +402,11 @@ function MapComponent() {
         name,
         points: routePoints,
         distance: routeDistance,
-        color: '#7c3aed',
+        color: '#22c55e',
       });
 
       setSavedRoutes(prev => [...prev, saved]);
-      success('Route saved', `Route '${saved.name}' saved to database.`);
+      success('Route saved', `Inspection route '${saved.name}' successfully stored.`);
       clearRoute();
       setIsRouteMode(false);
     } catch (err: any) {
@@ -372,7 +417,6 @@ function MapComponent() {
   const clearRoute = () => {
     setRoutePoints([]);
     setRouteDistance(0);
-    loadMarkersAndRoutes(); // Re-plot saved items
   };
 
   const handleDeleteMarker = async (id: string, e: React.MouseEvent) => {
@@ -380,7 +424,8 @@ function MapComponent() {
     try {
       await mapService.deleteMarker(id);
       setMarkers(prev => prev.filter(m => m.id !== id));
-      success('Deleted', 'Marker deleted successfully');
+      if (selectedMarkerId === id) setSelectedMarkerId(null);
+      success('Deleted', 'Waypoint deleted successfully');
     } catch (err: any) {
       showError('Failed', err.message);
     }
@@ -391,59 +436,74 @@ function MapComponent() {
     try {
       await mapService.deleteRoute(id);
       setSavedRoutes(prev => prev.filter(r => r.id !== id));
-      success('Deleted', 'Route deleted successfully');
+      if (selectedRouteId === id) setSelectedRouteId(null);
+      success('Deleted', 'Inspection route deleted');
     } catch (err: any) {
       showError('Failed', err.message);
     }
   };
 
-  const findMyLocation = () => {
-    if (!navigator.geolocation) {
-      info('Geolocation unavailable', 'Your browser does not support geolocation');
-      return;
+  // Push statically saved map coordinates to Jetson filesystem directly
+  const handlePushToJetson = async () => {
+    if (!exportModalMap) return;
+    setPushingToJetson(true);
+    try {
+      await apiClient.post('/jetson/export', {
+        mapId: exportModalMap.id,
+        exportPath: customExportPath.trim() || undefined,
+      });
+      success('Pushed to Jetson', `Successfully saved map configs to Jetson storage: ${customExportPath}`);
+      setExportModalMap(null);
+    } catch (err: any) {
+      showError('Jetson push failed', err.message || 'Could not write files to Jetson.');
+    } finally {
+      setPushingToJetson(false);
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setUserLocation({ lat, lng });
-        if (mapRef.current && leafletRef.current) {
-          const L = leafletRef.current;
-          mapRef.current.setView([lat, lng], 15);
-          if (userMarkerRef.current) mapRef.current.removeLayer(userMarkerRef.current);
-          userMarkerRef.current = L.circleMarker([lat, lng], {
-            radius: 8, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 3,
-          }).bindPopup('You are here').addTo(mapRef.current).openPopup();
-        }
-        success('Location found', `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-      },
-      () => info('Location denied', 'Please allow location permissions'),
-      { enableHighAccuracy: true }
-    );
   };
 
-  const searchLocation = async () => {
+  // Search waypoint list or metric coordinates
+  const searchLocation = () => {
     if (!searchQuery.trim()) return;
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQuery)}`);
-      const data = await res.json();
-      if (data.length > 0) {
-        const { lat, lon } = data[0];
-        mapRef.current?.setView([parseFloat(lat), parseFloat(lon)], 14);
-        success('Location found', data[0].display_name?.slice(0, 60));
-      } else {
-        info('Not found', 'No results for your search query');
-      }
-    } catch {
-      info('Search failed', 'Could not execute location query');
+
+    // Check if input matches X, Y float coordinates pattern (e.g. 1.25, -4.3)
+    const coordMatch = searchQuery.match(/^(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)$/);
+    if (coordMatch) {
+      const x = parseFloat(coordMatch[1]);
+      const y = parseFloat(coordMatch[3]);
+      setCenterOn({ x, y, timestamp: Date.now() });
+      success('Coordinates Targeted', `Centered viewport on coordinate space X: ${x}m, Y: ${y}m`);
+      return;
     }
+
+    // Otherwise, search waypoints
+    const query = searchQuery.toLowerCase();
+    const waypoint = markers.find(m => m.title.toLowerCase().includes(query) || (m.description && m.description.toLowerCase().includes(query)));
+    if (waypoint) {
+      // center on waypoint
+      setCenterOn({ x: waypoint.lng, y: waypoint.lat, timestamp: Date.now() });
+      setSelectedMarkerId(waypoint.id);
+      success('Waypoint Found', `Targeted waypoint: "${waypoint.title}"`);
+    } else {
+      info('Not found', 'No waypoint names or "X, Y" coordinate inputs matched.');
+    }
+  };
+
+  // Render grid helper selection
+  const gridSource = isLiveMode && liveGrid ? liveGrid : {
+    gridData: selectedMap?.gridData || [],
+    width: selectedMap?.width || 0,
+    height: selectedMap?.height || 0,
+    resolution: selectedMap?.resolution || 0.05,
+    originX: selectedMap?.originX || 0,
+    originY: selectedMap?.originY || 0,
   };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      {/* Map selection Sidebar Panel */}
+      {/* Sidebar selection */}
       <div className="lg:col-span-1 space-y-6">
         {/* Maps directory */}
-        <div className="card p-4 space-y-4">
+        <div className="card p-4 space-y-4 shadow-sm border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-card">
           <h3 className="font-semibold text-surface-900 dark:text-white text-sm border-b pb-2 dark:border-white/10 flex items-center gap-2">
             <MapIcon className="w-4 h-4 text-brand-500" />
             Maps Directory
@@ -455,25 +515,29 @@ function MapComponent() {
               value={newMapName}
               onChange={(e) => setNewMapName(e.target.value)}
               placeholder="New map name..."
-              className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-transparent dark:text-white"
+              className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-transparent dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
-            <button type="submit" className="p-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-500">
+            <button type="submit" className="p-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-500 transition-colors">
               <FolderPlus className="w-4 h-4" />
             </button>
           </form>
 
-          <div className="space-y-1 max-h-[150px] overflow-y-auto pr-1">
+          <div className="space-y-1 max-h-[160px] overflow-y-auto pr-1">
             {maps.map(m => (
               <div
                 key={m.id}
-                onClick={() => setSelectedMap(m)}
+                onClick={() => {
+                  setSelectedMap(m);
+                  setIsLiveMode(false);
+                  disconnectFromROS();
+                }}
                 className={`flex items-center justify-between text-xs p-2 rounded-lg cursor-pointer transition-all ${
-                  selectedMap?.id === m.id
+                  selectedMap?.id === m.id && !isLiveMode
                     ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 font-medium'
                     : 'text-surface-600 hover:bg-surface-50 dark:hover:bg-white/5 dark:text-surface-300'
                 }`}
               >
-                <span className="truncate flex-1">{m.name}</span>
+                <span className="truncate flex-1 font-medium">{m.name}</span>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={(e) => {
@@ -494,6 +558,13 @@ function MapComponent() {
                   >
                     <QrCode className="w-3.5 h-3.5" />
                   </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setExportModalMap(m); }}
+                    className="text-surface-400 hover:text-emerald-500 transition-colors mr-1"
+                    title="Export map configuration"
+                  >
+                    <FileDown className="w-3.5 h-3.5" />
+                  </button>
                   {maps.length > 1 && (
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeleteMap(m.id); }}
@@ -508,23 +579,38 @@ function MapComponent() {
           </div>
         </div>
 
-        {/* Selected map detailed info */}
-        {selectedMap && (
+        {/* Selected Map database waypoints list */}
+        {selectedMap && !isLiveMode && (
           <>
-            {/* Markers list */}
-            <div className="card p-4 space-y-3">
-              <h3 className="font-semibold text-surface-900 dark:text-white text-xs border-b pb-1.5 dark:border-white/10 flex items-center gap-2">
-                <MapPin className="w-3.5 h-3.5 text-emerald-500" />
-                Waypoints ({markers.length})
+            <div className="card p-4 space-y-3 shadow-sm border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-card">
+              <h3 className="font-semibold text-surface-900 dark:text-white text-xs border-b pb-1.5 dark:border-white/10 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-cyan-500" />
+                  Waypoints ({markers.length})
+                </span>
               </h3>
               <div className="space-y-1 max-h-[140px] overflow-y-auto pr-1">
                 {markers.length === 0 ? (
-                  <p className="text-[10px] text-surface-400">Click on map to place waypoints</p>
+                  <p className="text-[10px] text-surface-400">Double click on canvas map coordinates to register a waypoint.</p>
                 ) : (
                   markers.map(m => (
-                    <div key={m.id} className="flex items-center justify-between text-xs p-1.5 rounded bg-surface-50 dark:bg-white/[0.02] text-surface-600 dark:text-surface-300">
-                      <span className="truncate flex-1 font-medium">{m.title}</span>
-                      <div className="flex items-center gap-1">
+                    <div
+                      key={m.id}
+                      onClick={() => {
+                        setSelectedMarkerId(m.id);
+                        setCenterOn({ x: m.lng, y: m.lat, timestamp: Date.now() });
+                      }}
+                      className={`flex items-center justify-between text-xs p-1.5 rounded cursor-pointer transition-colors ${
+                        selectedMarkerId === m.id
+                          ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 font-semibold'
+                          : 'bg-surface-50 dark:bg-white/[0.02] text-surface-600 dark:text-surface-300'
+                      }`}
+                    >
+                      <div className="truncate flex-1 min-w-0">
+                        <p className="truncate font-medium">{m.title}</p>
+                        <p className="text-[9px] text-surface-400 font-mono">[{m.lng.toFixed(2)}, {m.lat.toFixed(2)}]</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -533,12 +619,12 @@ function MapComponent() {
                               type: 'waypoint',
                               id: m.id,
                               title: m.title,
-                              lat: m.lat,
-                              lng: m.lng
+                              x: m.lng,
+                              y: m.lat
                             }));
                             setQrModalOpen(true);
                           }}
-                          className="text-surface-400 hover:text-brand-500 transition-colors mr-1"
+                          className="text-surface-400 hover:text-brand-500 transition-colors"
                           title="View QR Code"
                         >
                           <QrCode className="w-3 h-3" />
@@ -553,21 +639,34 @@ function MapComponent() {
               </div>
             </div>
 
-            {/* Routes list */}
-            <div className="card p-4 space-y-3">
+            {/* Saved telemetry routes list */}
+            <div className="card p-4 space-y-3 shadow-sm border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-card">
               <h3 className="font-semibold text-surface-900 dark:text-white text-xs border-b pb-1.5 dark:border-white/10 flex items-center gap-2">
-                <Route className="w-3.5 h-3.5 text-purple-500" />
-                Saved Routes ({savedRoutes.length})
+                <Route className="w-3.5 h-3.5 text-emerald-500" />
+                Inspection Routes ({savedRoutes.length})
               </h3>
               <div className="space-y-1 max-h-[140px] overflow-y-auto pr-1">
                 {savedRoutes.length === 0 ? (
-                  <p className="text-[10px] text-surface-400">Enable Route Mode to draw paths</p>
+                  <p className="text-[10px] text-surface-400 font-medium">Activate Route Mode to plan and save inspection paths.</p>
                 ) : (
                   savedRoutes.map(r => (
-                    <div key={r.id} className="flex items-center justify-between text-xs p-1.5 rounded bg-surface-50 dark:bg-white/[0.02] text-surface-600 dark:text-surface-300">
+                    <div
+                      key={r.id}
+                      onClick={() => {
+                        setSelectedRouteId(r.id);
+                        if (r.points && r.points.length > 0) {
+                          setCenterOn({ x: r.points[0].lng, y: r.points[0].lat, timestamp: Date.now() });
+                        }
+                      }}
+                      className={`flex items-center justify-between text-xs p-1.5 rounded cursor-pointer transition-colors ${
+                        selectedRouteId === r.id
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold'
+                          : 'bg-surface-50 dark:bg-white/[0.02] text-surface-600 dark:text-surface-300'
+                      }`}
+                    >
                       <div className="flex-1 min-w-0">
                         <p className="truncate font-medium">{r.name}</p>
-                        <p className="text-[9px] text-surface-400">{formatDistance(r.distance)}</p>
+                        <p className="text-[9px] text-surface-400">{formatDistance(r.distance)} • {r.points.length} pts</p>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <button
@@ -603,29 +702,80 @@ function MapComponent() {
 
       {/* Main Map Visual Canvas panel */}
       <div className="lg:col-span-3 space-y-4">
-        {/* Map Mode Tabs */}
         <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-2 bg-surface-100 dark:bg-dark-elevated rounded-xl p-1">
-            {[
-              { key: 'standard', label: 'Standard', icon: <MapIcon className="w-4 h-4" /> },
-              { key: 'satellite', label: 'Satellite', icon: <Satellite className="w-4 h-4" /> },
-            ].map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setMode(tab.key as MapMode)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  mode === tab.key
-                    ? 'bg-white dark:bg-dark-card text-brand-600 dark:text-brand-400 shadow-sm'
-                    : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300'
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
+          {/* Toggle between DB and live ROS */}
+          <div className="flex items-center gap-2 bg-surface-100 dark:bg-dark-elevated rounded-xl p-1 border border-surface-200 dark:border-white/5">
+            <button
+              onClick={() => {
+                setIsLiveMode(false);
+                disconnectFromROS();
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                !isLiveMode
+                  ? 'bg-white dark:bg-dark-card text-brand-600 dark:text-brand-400 shadow-sm border border-surface-200/50 dark:border-white/5'
+                  : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300'
+              }`}
+            >
+              <MapIcon className="w-4 h-4" />
+              Saved Map Database
+            </button>
+            <button
+              onClick={() => {
+                setIsLiveMode(true);
+                connectToROS();
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isLiveMode
+                  ? 'bg-white dark:bg-dark-card text-brand-600 dark:text-brand-400 shadow-sm border border-surface-200/50 dark:border-white/5'
+                  : 'text-surface-500 hover:text-surface-700 dark:hover:text-surface-300'
+              }`}
+            >
+              <Activity className="w-4 h-4" />
+              Live LiDAR Scan
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Live ROS connection trigger indicators */}
+            {isLiveMode && (
+              <div className="flex items-center gap-2 mr-2">
+                <Badge variant={rosStatus === 'connected' ? 'success' : 'danger'} dot>
+                  {rosStatus === 'connected' ? 'ROS Live' : rosStatus === 'connecting' ? 'Connecting...' : 'ROS Offline'}
+                </Badge>
+                {rosStatus !== 'connected' && (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    loading={rosStatus === 'connecting'}
+                    onClick={connectToROS}
+                    icon={<Wifi className="w-3.5 h-3.5" />}
+                  >
+                    Connect
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Ruler mode toggle */}
+            <Button
+              variant={isMeasureMode ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => {
+                if (isMeasureMode) {
+                  // close
+                  setIsMeasureMode(false);
+                } else {
+                  setIsMeasureMode(true);
+                  setIsRouteMode(false);
+                  clearRoute();
+                }
+              }}
+              icon={<Ruler className="w-4 h-4" />}
+            >
+              {isMeasureMode ? 'Close Ruler' : 'Measure'}
+            </Button>
+
+            {/* Route mode toggle buttons */}
             {isRouteMode && routePoints.length >= 2 && (
               <Button
                 variant="primary"
@@ -640,101 +790,214 @@ function MapComponent() {
               variant={isRouteMode ? 'primary' : 'secondary'}
               size="sm"
               onClick={() => {
-                if (isRouteMode) clearRoute();
-                setIsRouteMode(!isRouteMode);
+                if (isRouteMode) {
+                  clearRoute();
+                  setIsRouteMode(false);
+                } else {
+                  setIsRouteMode(true);
+                  setIsMeasureMode(false);
+                }
               }}
               icon={<Route className="w-4 h-4" />}
             >
-              {isRouteMode ? 'Cancel Route' : 'Route Mode'}
+              {isRouteMode ? 'Cancel Route' : 'Route Planner'}
             </Button>
           </div>
         </div>
 
-        {/* Search */}
+        {/* Waypoint coordinate search console */}
         <div className="flex gap-2">
           <div className="flex-1">
             <SearchBar
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder="Search for a location..."
+              placeholder="Search waypoint name, or enter metric coordinates: e.g. 2.5, -1.8"
             />
           </div>
           <Button variant="primary" size="sm" onClick={searchLocation} icon={<Search className="w-4 h-4" />}>
-            Search
+            Search / Go To
           </Button>
         </div>
 
-        {/* Map Container */}
-        <div className="card overflow-hidden">
-          <div className="relative">
-            <div ref={mapContainerRef} className="w-full h-[400px] sm:h-[500px] lg:h-[600px] z-0" />
+        {/* Interactive canvas grid */}
+        <div className="card overflow-hidden relative shadow-sm border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-card">
+          {gridSource.width > 0 ? (
+            <LidarCanvasMap
+              gridData={gridSource.gridData}
+              width={gridSource.width}
+              height={gridSource.height}
+              resolution={gridSource.resolution}
+              originX={gridSource.originX}
+              originY={gridSource.originY}
+              markers={markers}
+              routes={savedRoutes}
+              isRouteMode={isRouteMode}
+              routePoints={routePoints}
+              onAddRoutePoint={addRoutePoint}
+              onMapClick={handleMapClickAddMarker}
+              selectedMarkerId={selectedMarkerId}
+              onSelectMarker={setSelectedMarkerId}
+              selectedRouteId={selectedRouteId}
+              onSelectRoute={setSelectedRouteId}
+              isMeasureMode={isMeasureMode}
+              centerOn={centerOn}
+            />
+          ) : (
+            <div className="w-full h-[450px] sm:h-[500px] lg:h-[600px] flex flex-col items-center justify-center text-surface-400 bg-slate-950 rounded-xl border border-white/5 p-8">
+              <WifiOff className="w-12 h-12 mb-3 text-red-500 opacity-80" />
+              <h4 className="text-white font-bold text-sm">No LiDAR grid map data available</h4>
+              <p className="text-xs text-surface-400 text-center max-w-sm mt-1">
+                {isLiveMode 
+                  ? 'Awaiting live OccupancyGrid messages. Please verify ROS bridge connection.' 
+                  : 'Select a saved map from the directory sidebar or create a new room.'}
+              </p>
+            </div>
+          )}
 
-            {/* Map Zoom Controls Overlay */}
-            <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
-              <button
-                onClick={() => mapRef.current?.zoomIn()}
-                className="w-10 h-10 rounded-xl bg-white dark:bg-dark-card shadow-lg border border-surface-200 dark:border-white/10 flex items-center justify-center text-surface-700 dark:text-surface-300 hover:text-brand-600 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => mapRef.current?.zoomOut()}
-                className="w-10 h-10 rounded-xl bg-white dark:bg-dark-card shadow-lg border border-surface-200 dark:border-white/10 flex items-center justify-center text-surface-700 dark:text-surface-300 hover:text-brand-600 transition-colors"
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-              <button
-                onClick={findMyLocation}
-                className="w-10 h-10 rounded-xl bg-white dark:bg-dark-card shadow-lg border border-surface-200 dark:border-white/10 flex items-center justify-center text-surface-700 dark:text-surface-300 hover:text-brand-600 transition-colors"
-              >
-                <Crosshair className="w-4 h-4" />
-              </button>
+          {/* Interactive Status Footer info bar */}
+          <div className="px-5 py-3 border-t border-surface-200 dark:border-white/[0.08] flex items-center justify-between text-xs flex-wrap gap-2 bg-surface-50 dark:bg-dark-elevated">
+            <div className="flex items-center gap-4 text-surface-500 font-medium">
+              <span className="text-surface-800 dark:text-surface-200">
+                {isLiveMode ? `Live Topic: ${mappingConfig.mapTopic}` : `Active Map: ${selectedMap?.name}`}
+              </span>
+              <span className="font-mono text-surface-400">
+                Size: {gridSource.width}x{gridSource.height} ({gridSource.resolution}m/cell)
+              </span>
+              {isLiveMode && lastMapUpdate && (
+                <span className="text-[10px] text-brand-500 animate-pulse">
+                  Last update: {new Date(lastMapUpdate).toLocaleTimeString()}
+                </span>
+              )}
             </div>
 
-            {/* Route Distance Planning Overlay */}
             {isRouteMode && routePoints.length > 0 && (
-              <div className="absolute bottom-4 left-4 z-[1000]">
-                <div className="glass-strong rounded-xl px-4 py-3 flex items-center gap-3">
-                  <Ruler className="w-4 h-4 text-brand-500" />
-                  <div>
-                    <p className="text-xs text-surface-500">Route planning ({routePoints.length} pts)</p>
-                    <p className="text-sm font-bold text-surface-900 dark:text-white">
-                      {routeDistance > 0 ? formatDistance(routeDistance) : 'Click on map to draw route'}
-                    </p>
-                  </div>
-                  {routePoints.length > 0 && (
-                    <button onClick={clearRoute} className="ml-2 text-surface-400 hover:text-red-500">
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-              </div>
+              <span className="text-red-500 font-semibold flex items-center gap-1.5 animate-pulse">
+                <Compass className="w-3.5 h-3.5" />
+                Planning Route: {routePoints.length} points ({routeDistance.toFixed(2)}m)
+              </span>
             )}
-          </div>
-
-          {/* Map Info Bar */}
-          <div className="px-5 py-3 border-t border-surface-200 dark:border-white/[0.08] flex items-center justify-between text-sm flex-wrap gap-2 bg-surface-50 dark:bg-dark-elevated">
-            <div className="flex items-center gap-4 text-surface-500 text-xs">
-              <span className="font-semibold text-surface-750 dark:text-surface-200">
-                Active Map: {selectedMap?.name}
-              </span>
-              <span className="flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" />
-                {markers.length} waypoints saved
-              </span>
-              <span className="flex items-center gap-1">
-                <Route className="w-3.5 h-3.5" />
-                {savedRoutes.length} route configurations
-              </span>
-            </div>
           </div>
         </div>
       </div>
 
+      {/* Export modal overlay */}
+      {exportModalMap && (
+        <div className="modal-overlay">
+          <div className="modal-content max-w-md p-6 relative bg-white dark:bg-dark-card border border-surface-200 dark:border-white/10 rounded-2xl shadow-glow">
+            <button onClick={() => setExportModalMap(null)} className="absolute top-4 right-4 text-surface-400 hover:text-surface-600 dark:hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-500/20">
+                <FileDown className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-surface-900 dark:text-white">Export & Save Options</h3>
+                <p className="text-xs text-surface-500">{exportModalMap.name}</p>
+              </div>
+            </div>
+            <p className="text-xs text-surface-500 dark:text-surface-400 mb-5">
+              Choose to download the files locally or save them directly to the Jetson filesystem storage.
+            </p>
+
+            <div className="space-y-3">
+              {/* Push directly to Jetson storage */}
+              <div className="p-4 rounded-xl border border-brand-500/20 dark:border-brand-500/30 bg-brand-50/20 dark:bg-brand-500/5 space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <UploadCloud className="w-5 h-5 text-brand-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-surface-900 dark:text-white">Save on Jetson Developer Kit</p>
+                      <p className="text-xs text-surface-500">Pushes YAML + PGM configs directly to host</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customExportPath}
+                    onChange={(e) => setCustomExportPath(e.target.value)}
+                    placeholder="Jetson path..."
+                    className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-transparent dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  />
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    loading={pushingToJetson}
+                    onClick={handlePushToJetson}
+                    icon={<Save className="w-3.5 h-3.5" />}
+                  >
+                    Push Map
+                  </Button>
+                </div>
+              </div>
+
+              {/* YAML local download */}
+              <div className="p-3 rounded-xl border border-surface-200 dark:border-white/10 flex items-center justify-between gap-4 hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center gap-3">
+                  <FileCode className="w-5 h-5 text-brand-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white font-sans">YAML Config</p>
+                    <p className="text-xs text-surface-500">ScoutRover map metadata + resolution</p>
+                  </div>
+                </div>
+                <Button size="sm" variant="secondary" icon={<FileDown className="w-4 h-4" />}
+                  onClick={() => {
+                    downloadBlob(new Blob([buildYAML(exportModalMap)], { type: 'text/yaml' }), `${exportModalMap.name.replace(/\s+/g, '_')}.yaml`);
+                    success('Exported', 'YAML file downloaded');
+                  }}>
+                  Download
+                </Button>
+              </div>
+
+              {/* ROS PGM + YAML download */}
+              <div className="p-3 rounded-xl border border-surface-200 dark:border-white/10 flex items-center justify-between gap-4 hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center gap-3">
+                  <Package className="w-5 h-5 text-purple-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white font-sans">ROS PGM + YAML</p>
+                    <p className="text-xs text-surface-500">Direct import into standard Nav2 map_server</p>
+                  </div>
+                </div>
+                <Button size="sm" variant="secondary" icon={<FileDown className="w-4 h-4" />}
+                  onClick={() => {
+                    const slug = exportModalMap.name.replace(/\s+/g, '_');
+                    downloadBlob(buildPGM(exportModalMap), `${slug}.pgm`);
+                    setTimeout(() => {
+                      downloadBlob(new Blob([buildRosYAML(exportModalMap, `${slug}.pgm`)], { type: 'text/yaml' }), `${slug}.yaml`);
+                    }, 200);
+                    success('Exported', 'PGM + YAML files downloaded');
+                  }}>
+                  Download
+                </Button>
+              </div>
+
+              {/* JSON export */}
+              <div className="p-3 rounded-xl border border-surface-200 dark:border-white/10 flex items-center justify-between gap-4 hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center gap-3">
+                  <FileText className="w-5 h-5 text-cyan-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white font-sans">Raw JSON Map Data</p>
+                    <p className="text-xs text-surface-500">Full cell array for custom automation scripts</p>
+                  </div>
+                </div>
+                <Button size="sm" variant="secondary" icon={<FileDown className="w-4 h-4" />}
+                  onClick={() => {
+                    downloadBlob(new Blob([JSON.stringify(exportModalMap, null, 2)], { type: 'application/json' }), `${exportModalMap.name.replace(/\s+/g, '_')}.json`);
+                    success('Exported', 'JSON file downloaded');
+                  }}>
+                  Download
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QR Code sharing Modal */}
       {qrModalOpen && (
         <div className="modal-overlay">
-          <div className="modal-content max-w-sm p-6 text-center relative">
+          <div className="modal-content max-w-sm p-6 text-center relative bg-white dark:bg-dark-card border border-surface-200 dark:border-white/10 rounded-2xl shadow-glow">
             <button
               onClick={() => setQrModalOpen(false)}
               className="absolute top-4 right-4 text-surface-400 hover:text-surface-600 dark:hover:text-surface-200"
@@ -747,8 +1010,8 @@ function MapComponent() {
             <div className="bg-white rounded-2xl p-4 border border-surface-200 dark:border-surface-700 shadow-inner inline-block mx-auto mb-4">
               <canvas ref={qrCanvasRef} className="w-48 h-48" />
             </div>
-            <p className="text-xs text-surface-500 dark:text-surface-400 px-4 mb-2 truncate">
-              Raw Data: {qrModalContent}
+            <p className="text-[10px] font-mono text-surface-500 dark:text-surface-400 px-4 mb-2 truncate">
+              Raw Payload: {qrModalContent}
             </p>
             <div className="flex gap-2 mt-4">
               <Button
@@ -790,7 +1053,7 @@ export default function MapsPage() {
       <Breadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Maps' }]} />
       <div className="mb-6">
         <h1 className="page-title">Maps Console</h1>
-        <p className="page-subtitle">Configure spatial maps, place persistent waypoints, and design navigation routes</p>
+        <p className="page-subtitle">Configure 2D LiDAR spatial occupancy grids, define waypoints, and outline inspection routes</p>
       </div>
       <MapComponent />
     </DashboardLayout>

@@ -1,29 +1,301 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User as UserIcon, Mail, MapPin, Phone, Calendar, Edit3, Camera, Save,
-  Map, QrCode, Compass, Activity, Shield
+  Map, QrCode, Compass, Activity, Shield, Scan, Download, Copy, Check,
+  Upload, X, Image as ImageIcon, Palette
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
-import { Button, Input, Textarea, Avatar, Breadcrumb, Badge, Tabs } from '@/components/ui';
+import { Button, Input, Textarea, Avatar, Breadcrumb, Badge, Tabs, Select } from '@/components/ui';
 import { StatCard, ProfileCard, SettingsCard } from '@/components/cards';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { formatDate, timeAgo } from '@/utils/helpers';
 import apiClient from '@/services/apiClient';
+import { QR_CONFIG } from '@/constants';
 
+// ─── helpers ───────────────────────────────────────────────────────────────
+const getAvatarUrl = (avatarPath?: string) => {
+  if (!avatarPath) return '';
+  if (avatarPath.startsWith('http')) return avatarPath;
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:5000';
+  return `${base}${avatarPath}`;
+};
+
+// ─── Activity icon helper ─────────────────────────────────────────────────
+const getActivityIcon = (action: string) => {
+  if (action.startsWith('USER'))    return <UserIcon className="w-4 h-4" />;
+  if (action.startsWith('MAP'))     return <Map className="w-4 h-4" />;
+  if (action.startsWith('MARKER'))  return <MapPin className="w-4 h-4" />;
+  if (action.startsWith('ROUTE'))   return <Compass className="w-4 h-4" />;
+  return <Activity className="w-4 h-4" />;
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// QR GENERATOR sub-component
+// ══════════════════════════════════════════════════════════════════════════
+function QRGenerator({ defaultText }: { defaultText?: string }) {
+  const { success } = useToast();
+  const [text, setText] = useState(defaultText || 'https://scoutrover.app');
+  const [size, setSize] = useState<number>(QR_CONFIG.defaultSize);
+  const [fgColor, setFgColor] = useState<string>(QR_CONFIG.defaultFgColor);
+  const [bgColor, setBgColor] = useState<string>(QR_CONFIG.defaultBgColor);
+  const [errorLevel, setErrorLevel] = useState<string>(QR_CONFIG.defaultErrorLevel);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  const generateQR = useCallback(async () => {
+    if (!text.trim() || !canvasRef.current) return;
+    try {
+      const QRCode = (await import('qrcode')).default;
+      await QRCode.toCanvas(canvasRef.current, text, {
+        width: size,
+        margin: 2,
+        color: { dark: fgColor, light: bgColor },
+        errorCorrectionLevel: errorLevel as 'L' | 'M' | 'Q' | 'H',
+      });
+    } catch (err) { console.error('QR gen error:', err); }
+  }, [text, size, fgColor, bgColor, errorLevel]);
+
+  useEffect(() => { generateQR(); }, [generateQR]);
+
+  const downloadQR = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = 'scoutrover-qr.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    success('Downloaded', 'QR code saved as PNG');
+  };
+
+  const copyText = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      success('Copied', 'Text copied to clipboard');
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Settings */}
+      <div className="space-y-4">
+        <Input
+          label="QR Content"
+          placeholder="Enter URL, text, or data…"
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rightIcon={
+            <button onClick={copyText} className="text-surface-400 hover:text-brand-500">
+              {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+            </button>
+          }
+        />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">Foreground</label>
+            <div className="flex items-center gap-2">
+              <input type="color" value={fgColor} onChange={e => setFgColor(e.target.value)} className="w-10 h-10 rounded-lg border border-surface-300 dark:border-surface-600 cursor-pointer" />
+              <input type="text" value={fgColor} onChange={e => setFgColor(e.target.value)} className="input text-xs font-mono" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1.5">Background</label>
+            <div className="flex items-center gap-2">
+              <input type="color" value={bgColor} onChange={e => setBgColor(e.target.value)} className="w-10 h-10 rounded-lg border border-surface-300 dark:border-surface-600 cursor-pointer" />
+              <input type="text" value={bgColor} onChange={e => setBgColor(e.target.value)} className="input text-xs font-mono" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Size" value={String(size)} onChange={e => setSize(Number(e.target.value))}
+            options={[
+              { value: '128', label: '128 × 128' },
+              { value: '256', label: '256 × 256' },
+              { value: '512', label: '512 × 512' },
+            ]} />
+          <Select label="Error Correction" value={errorLevel} onChange={e => setErrorLevel(e.target.value)}
+            options={[
+              { value: 'L', label: 'Low (7%)' },
+              { value: 'M', label: 'Medium (15%)' },
+              { value: 'Q', label: 'Quartile (25%)' },
+              { value: 'H', label: 'High (30%)' },
+            ]} />
+        </div>
+
+        <Button variant="primary" onClick={downloadQR} icon={<Download className="w-4 h-4" />} className="w-full">
+          Download QR Code
+        </Button>
+      </div>
+
+      {/* Preview */}
+      <div className="card p-6 flex flex-col items-center justify-center">
+        <p className="text-sm font-medium text-surface-500 mb-4">Preview</p>
+        <div className="bg-white rounded-2xl p-6 shadow-inner border border-surface-100 dark:border-surface-700">
+          <canvas ref={canvasRef} className="max-w-full" />
+        </div>
+        {text && <p className="text-xs text-surface-400 mt-4 text-center max-w-xs truncate">{text}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// QR SCANNER sub-component
+// ══════════════════════════════════════════════════════════════════════════
+function QRScanner() {
+  const { success, error: showError } = useToast();
+  const [scanning, setScanning] = useState(false);
+  const [result, setResult] = useState('');
+  const [scanMethod, setScanMethod] = useState<'camera' | 'upload'>('camera');
+  const scannerRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const startScanner = async () => {
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      if (scannerRef.current) { try { await scannerRef.current.stop(); } catch {} }
+      const scanner = new Html5Qrcode('profile-qr-reader');
+      scannerRef.current = scanner;
+      setScanning(true);
+      setResult('');
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: QR_CONFIG.scannerFps, qrbox: QR_CONFIG.scannerQrbox },
+        (decoded: string) => {
+          setResult(decoded);
+          success('QR Code Found!', decoded.slice(0, 60));
+          scanner.stop().catch(() => {});
+          setScanning(false);
+        },
+        () => {}
+      );
+    } catch (err: any) {
+      showError('Scanner Error', err?.message || 'Could not access camera');
+      setScanning(false);
+    }
+  };
+
+  const stopScanner = async () => {
+    try { await scannerRef.current?.stop(); } catch {}
+    setScanning(false);
+  };
+
+  const scanFromFile = async (file: File) => {
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const scanner = new Html5Qrcode('profile-qr-reader-file');
+      const decoded = await scanner.scanFile(file, true);
+      setResult(decoded);
+      success('QR Code Found!', decoded.slice(0, 60));
+    } catch {
+      showError('Scan Failed', 'No QR code found in the image');
+    }
+  };
+
+  useEffect(() => {
+    return () => { scannerRef.current?.stop().catch(() => {}); };
+  }, []);
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Scanner */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 bg-surface-100 dark:bg-dark-elevated rounded-xl p-1">
+          {(['camera', 'upload'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => { setScanMethod(m); stopScanner(); }}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                scanMethod === m ? 'bg-white dark:bg-dark-card text-brand-600 shadow-sm' : 'text-surface-500'
+              }`}
+            >
+              {m === 'camera' ? <><Camera className="w-4 h-4" /> Camera</> : <><Upload className="w-4 h-4" /> Upload</>}
+            </button>
+          ))}
+        </div>
+
+        {scanMethod === 'camera' ? (
+          <div>
+            <div id="profile-qr-reader" className="rounded-xl overflow-hidden bg-surface-900 min-h-[260px] mb-3" />
+            <Button
+              variant={scanning ? 'danger' : 'primary'}
+              onClick={scanning ? stopScanner : startScanner}
+              icon={scanning ? <X className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+              className="w-full"
+            >
+              {scanning ? 'Stop Scanner' : 'Start Camera'}
+            </Button>
+          </div>
+        ) : (
+          <div>
+            <div id="profile-qr-reader-file" className="hidden" />
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-surface-300 dark:border-surface-600 rounded-xl p-10 text-center cursor-pointer hover:border-brand-400 transition-colors"
+            >
+              <Upload className="w-10 h-10 text-surface-400 mx-auto mb-3" />
+              <p className="text-sm font-medium text-surface-700 dark:text-surface-300">Click to upload an image</p>
+              <p className="text-xs text-surface-400 mt-1">PNG, JPG, or WebP</p>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) scanFromFile(f); }} className="hidden" />
+          </div>
+        )}
+      </div>
+
+      {/* Result */}
+      <div className="card p-6">
+        <h3 className="font-semibold text-surface-900 dark:text-white mb-4">Scan Result</h3>
+        {result ? (
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">
+              <div className="flex items-start gap-3">
+                <Check className="w-5 h-5 text-emerald-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300 mb-1">QR Code Detected</p>
+                  <p className="text-sm text-emerald-700 dark:text-emerald-400 break-all font-mono">{result}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => { navigator.clipboard.writeText(result); success('Copied', ''); }} icon={<Copy className="w-4 h-4" />} className="flex-1">Copy</Button>
+              {result.startsWith('http') && (
+                <a href={result} target="_blank" rel="noopener noreferrer" className="flex-1">
+                  <Button variant="primary" className="w-full">Open Link</Button>
+                </a>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-12 text-surface-400">
+            <Scan className="w-12 h-12 mb-3 opacity-50" />
+            <p className="text-sm font-medium">No QR code scanned yet</p>
+            <p className="text-xs mt-1 text-center">Use camera scanner or upload an image</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PROFILE PAGE
+// ══════════════════════════════════════════════════════════════════════════
 export default function ProfilePage() {
   const { user, updateProfile, uploadAvatar } = useAuth();
   const { success, error: showError } = useToast();
   const [activeTab, setActiveTab] = useState('overview');
-  const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [avatarLoading, setAvatarLoading] = useState(false);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const profileQrRef = useRef<HTMLCanvasElement>(null);
-  
+
   const [activities, setActivities] = useState<any[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
 
@@ -34,63 +306,33 @@ export default function ProfilePage() {
     phone: user?.phone || '',
   });
 
-  // Generate Profile QR Code
+  // Generate Profile QR on mount / user change
   useEffect(() => {
     if (!user || !profileQrRef.current) return;
-    
-    const generateProfileQR = async () => {
+    (async () => {
       try {
         const QRCode = (await import('qrcode')).default;
-        const profileData = JSON.stringify({
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          location: user.location || 'Not set',
-          joinedAt: user.joinedAt,
+        const data = JSON.stringify({ name: user.name, email: user.email, role: user.role, location: user.location || '', joinedAt: user.joinedAt });
+        await QRCode.toCanvas(profileQrRef.current, data, {
+          width: 144, margin: 1, color: { dark: '#7c3aed', light: '#ffffff' },
         });
-        await QRCode.toCanvas(profileQrRef.current, profileData, {
-          width: 144,
-          margin: 1,
-          color: {
-            dark: '#7c3aed', // Purple brand color
-            light: '#ffffff',
-          },
-        });
-      } catch (err) {
-        console.error('Failed to generate profile QR:', err);
-      }
-    };
-
-    generateProfileQR();
+      } catch { /* ignore */ }
+    })();
   }, [user]);
 
-  // Keep form in sync when user loads
+  // Sync form when user loads
   useEffect(() => {
-    if (user) {
-      setForm({
-        name: user.name || '',
-        bio: user.bio || '',
-        location: user.location || '',
-        phone: user.phone || '',
-      });
-    }
+    if (user) setForm({ name: user.name || '', bio: user.bio || '', location: user.location || '', phone: user.phone || '' });
   }, [user]);
 
-  // Fetch real activities from audit logs when clicking activity tab
+  // Fetch audit logs for activity tab
   useEffect(() => {
-    if (activeTab === 'activity' && user) {
-      setActivitiesLoading(true);
-      apiClient.get<any>(`/audit-logs?limit=20`)
-        .then((res) => {
-          setActivities(res.docs || []);
-        })
-        .catch((err) => {
-          showError('Failed', 'Could not load your activity history logs');
-        })
-        .finally(() => {
-          setActivitiesLoading(false);
-        });
-    }
+    if (activeTab !== 'activity' || !user) return;
+    setActivitiesLoading(true);
+    apiClient.get<any>('/audit-logs?limit=20')
+      .then(res => setActivities(res.docs || []))
+      .catch(() => showError('Failed', 'Could not load activity history'))
+      .finally(() => setActivitiesLoading(false));
   }, [activeTab, user, showError]);
 
   const handleSave = async () => {
@@ -98,7 +340,7 @@ export default function ProfilePage() {
     try {
       await updateProfile(form);
       success('Profile updated', 'Your changes have been saved successfully');
-      setEditing(false);
+      setActiveTab('overview');
     } catch (err: any) {
       showError('Update failed', err.message);
     } finally {
@@ -106,61 +348,20 @@ export default function ProfilePage() {
     }
   };
 
-  const handleAvatarClick = () => {
-    fileInputRef.current?.click();
-  };
-
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      showError('Upload failed', 'Photo size must be less than 5MB');
-      return;
-    }
-
+    if (file.size > 5 * 1024 * 1024) { showError('Upload failed', 'Photo must be < 5MB'); return; }
     const formData = new FormData();
     formData.append('avatar', file);
-
     setAvatarLoading(true);
     try {
       await uploadAvatar(formData);
-      success('Avatar updated', 'Your profile picture has been updated');
+      success('Avatar updated', 'Profile picture updated');
     } catch (err: any) {
       showError('Upload failed', err.message);
     } finally {
       setAvatarLoading(false);
-    }
-  };
-
-  const getAvatarUrl = (avatarPath?: string) => {
-    if (!avatarPath) return '';
-    if (avatarPath.startsWith('http')) return avatarPath;
-    const backendBase = process.env.NEXT_PUBLIC_API_URL?.replace('/api/v1', '') || 'http://localhost:5000';
-    return `${backendBase}${avatarPath}`;
-  };
-
-  const getActivityIcon = (action: string) => {
-    switch (action) {
-      case 'USER_LOGIN':
-      case 'USER_LOGOUT':
-      case 'USER_REGISTER':
-      case 'USER_UPDATE_PROFILE':
-        return <UserIcon className="w-4 h-4" />;
-      case 'MAP_CREATE':
-      case 'MAP_DELETE':
-      case 'MAP_UPDATE':
-        return <Map className="w-4 h-4" />;
-      case 'MARKER_CREATE':
-      case 'MARKER_DELETE':
-      case 'MARKER_UPDATE':
-        return <MapPin className="w-4 h-4" />;
-      case 'ROUTE_CREATE':
-      case 'ROUTE_DELETE':
-      case 'ROUTE_UPDATE':
-        return <Compass className="w-4 h-4" />;
-      default:
-        return <Activity className="w-4 h-4" />;
     }
   };
 
@@ -170,16 +371,10 @@ export default function ProfilePage() {
     <DashboardLayout>
       <Breadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Profile' }]} />
 
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleAvatarChange}
-        style={{ display: 'none' }}
-        accept="image/*"
-      />
+      <input type="file" ref={fileInputRef} onChange={handleAvatarChange} style={{ display: 'none' }} accept="image/*" />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Profile Card */}
+        {/* Left Column */}
         <div className="space-y-6">
           <ProfileCard
             name={user.name}
@@ -195,16 +390,16 @@ export default function ProfilePage() {
             ]}
           />
 
+          {/* Profile QR Card */}
           <div className="card p-6 flex flex-col items-center justify-center">
             <h3 className="text-sm font-semibold text-surface-900 dark:text-white mb-3 flex items-center gap-2">
-              <QrCode className="w-4 h-4 text-brand-500" />
-              Profile QR Code
+              <QrCode className="w-4 h-4 text-brand-500" /> Profile QR Code
             </h3>
             <div className="bg-white rounded-2xl p-4 border border-surface-200 dark:border-surface-700 shadow-inner">
               <canvas ref={profileQrRef} className="w-36 h-36" />
             </div>
             <p className="text-xs text-surface-500 dark:text-surface-400 mt-3 text-center">
-              Scan to share profile contact details
+              Scan to share your profile contact card
             </p>
           </div>
         </div>
@@ -213,53 +408,48 @@ export default function ProfilePage() {
         <div className="lg:col-span-2 space-y-6">
           <Tabs
             items={[
-              { key: 'overview', label: 'Overview', icon: <UserIcon className="w-4 h-4" /> },
-              { key: 'edit', label: 'Edit Profile', icon: <Edit3 className="w-4 h-4" /> },
-              { key: 'activity', label: 'Activity', icon: <Activity className="w-4 h-4" /> },
+              { key: 'overview',  label: 'Overview',    icon: <UserIcon className="w-4 h-4" /> },
+              { key: 'edit',      label: 'Edit Profile', icon: <Edit3 className="w-4 h-4" /> },
+              { key: 'qr',        label: 'QR Tools',    icon: <QrCode className="w-4 h-4" /> },
+              { key: 'activity',  label: 'Activity',    icon: <Activity className="w-4 h-4" /> },
             ]}
             activeKey={activeTab}
             onChange={setActiveTab}
           />
 
+          {/* ── Overview ── */}
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-fade-in">
-              {/* Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <StatCard icon={<Map className="w-5 h-5" />} label="Maps Saved" value={12} />
                 <StatCard icon={<Compass className="w-5 h-5" />} label="Routes" value={8} />
                 <StatCard icon={<QrCode className="w-5 h-5" />} label="QR Codes" value={24} />
                 <StatCard icon={<Activity className="w-5 h-5" />} label="Sessions" value={42} />
               </div>
-
-              {/* Info */}
               <SettingsCard title="Personal Information">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wider font-medium">Full Name</p>
-                    <p className="text-sm font-semibold text-surface-900 dark:text-white mt-1">{user.name}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wider font-medium">Email</p>
-                    <p className="text-sm font-semibold text-surface-900 dark:text-white mt-1">{user.email}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wider font-medium">Location</p>
-                    <p className="text-sm text-surface-900 dark:text-white mt-1">{user.location || 'Not set'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-surface-500 uppercase tracking-wider font-medium">Joined</p>
-                    <p className="text-sm text-surface-900 dark:text-white mt-1">{formatDate(user.joinedAt)}</p>
-                  </div>
+                  {[
+                    { label: 'Full Name', value: user.name },
+                    { label: 'Email', value: user.email },
+                    { label: 'Location', value: user.location || 'Not set' },
+                    { label: 'Joined', value: formatDate(user.joinedAt) },
+                  ].map(row => (
+                    <div key={row.label}>
+                      <p className="text-xs text-surface-500 uppercase tracking-wider font-medium">{row.label}</p>
+                      <p className="text-sm font-semibold text-surface-900 dark:text-white mt-1">{row.value}</p>
+                    </div>
+                  ))}
                 </div>
               </SettingsCard>
             </div>
           )}
 
+          {/* ── Edit Profile ── */}
           {activeTab === 'edit' && (
             <SettingsCard title="Edit Profile" description="Update your personal information" className="animate-fade-in">
               <div className="space-y-5">
                 <div className="flex items-center gap-4">
-                  <div className="relative group cursor-pointer" onClick={handleAvatarClick}>
+                  <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                     <Avatar name={user.name} src={getAvatarUrl(user.avatar)} size="xl" />
                     <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Camera className="w-5 h-5 text-white" />
@@ -267,80 +457,95 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-surface-900 dark:text-white">Profile Photo</p>
-                    <p className="text-xs text-surface-500 mt-0.5">Click photo to upload. JPG, PNG. Max 5MB.</p>
+                    <p className="text-xs text-surface-500 mt-0.5">Click to upload. JPG, PNG. Max 5MB.</p>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input
-                    label="Full name"
-                    value={form.name}
-                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                    leftIcon={<UserIcon className="w-4 h-4" />}
-                  />
-                  <Input
-                    label="Phone"
-                    value={form.phone}
-                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                    leftIcon={<Phone className="w-4 h-4" />}
-                    placeholder="+1 234 567 8900"
-                  />
+                  <Input label="Full name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} leftIcon={<UserIcon className="w-4 h-4" />} />
+                  <Input label="Phone" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} leftIcon={<Phone className="w-4 h-4" />} placeholder="+1 234 567 8900" />
                 </div>
-
-                <Input
-                  label="Location"
-                  value={form.location}
-                  onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                  leftIcon={<MapPin className="w-4 h-4" />}
-                  placeholder="City, Country"
-                />
-
-                <Textarea
-                  label="Bio"
-                  value={form.bio}
-                  onChange={e => setForm(f => ({ ...f, bio: e.target.value }))}
-                  placeholder="Tell us about yourself..."
-                  rows={3}
-                />
-
+                <Input label="Location" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} leftIcon={<MapPin className="w-4 h-4" />} placeholder="City, Country" />
+                <Textarea label="Bio" value={form.bio} onChange={e => setForm(f => ({ ...f, bio: e.target.value }))} placeholder="Tell us about yourself…" rows={3} />
                 <div className="flex justify-end gap-3">
                   <Button variant="secondary" onClick={() => setActiveTab('overview')}>Cancel</Button>
-                  <Button variant="primary" onClick={handleSave} loading={loading} icon={<Save className="w-4 h-4" />}>
-                    Save Changes
-                  </Button>
+                  <Button variant="primary" onClick={handleSave} loading={loading} icon={<Save className="w-4 h-4" />}>Save Changes</Button>
                 </div>
               </div>
             </SettingsCard>
           )}
 
+          {/* ── QR Tools ── */}
+          {activeTab === 'qr' && (
+            <div className="space-y-6 animate-fade-in">
+              <Tabs
+                items={[
+                  { key: 'generate', label: 'Generator', icon: <QrCode className="w-4 h-4" /> },
+                  { key: 'scan',     label: 'Scanner',   icon: <Scan className="w-4 h-4" /> },
+                ]}
+                activeKey={activeTab === 'qr' ? 'generate' : 'scan'}
+                onChange={() => {}}
+              />
+              <QRSubTabs user={user} />
+            </div>
+          )}
+
+          {/* ── Activity ── */}
           {activeTab === 'activity' && (
             <SettingsCard title="Recent Activity" className="animate-fade-in">
               <div className="space-y-4">
                 {activitiesLoading ? (
-                  <div className="py-6 text-center text-sm text-surface-400">Loading activities...</div>
+                  <div className="py-6 text-center text-sm text-surface-400">Loading activities…</div>
                 ) : activities.length === 0 ? (
                   <div className="py-6 text-center text-sm text-surface-400">No activity logs recorded yet.</div>
-                ) : (
-                  activities.map((item, i) => (
-                    <div key={item._id || i} className="flex items-start gap-3 p-3 rounded-xl hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
-                      <div className="p-2 rounded-lg bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400">
-                        {getActivityIcon(item.action)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-surface-800 dark:text-surface-200 font-medium">
-                          {item.action.replace(/_/g, ' ')}
-                        </p>
-                        <p className="text-xs text-surface-500 mt-0.5">{item.description}</p>
-                        <p className="text-[10px] text-surface-400 mt-1">{timeAgo(item.timestamp)}</p>
-                      </div>
+                ) : activities.map((item, i) => (
+                  <div key={item._id || i} className="flex items-start gap-3 p-3 rounded-xl hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
+                    <div className="p-2 rounded-lg bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400">
+                      {getActivityIcon(item.action)}
                     </div>
-                  ))
-                )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-surface-800 dark:text-surface-200 font-medium">{item.action.replace(/_/g, ' ')}</p>
+                      <p className="text-xs text-surface-500 mt-0.5">{item.description}</p>
+                      <p className="text-[10px] text-surface-400 mt-1">{timeAgo(item.timestamp)}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </SettingsCard>
           )}
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// QR sub-tabs inside the QR Tools tab
+// ══════════════════════════════════════════════════════════════════════════
+function QRSubTabs({ user }: { user: any }) {
+  const [sub, setSub] = useState<'generate' | 'scan'>('generate');
+  const profileText = user ? JSON.stringify({ name: user.name, email: user.email, role: user.role }) : '';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 bg-surface-100 dark:bg-dark-elevated rounded-xl p-1 w-fit">
+        {(['generate', 'scan'] as const).map(k => (
+          <button
+            key={k}
+            onClick={() => setSub(k)}
+            className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
+              sub === k ? 'bg-white dark:bg-dark-card text-brand-600 shadow-sm' : 'text-surface-500 hover:text-surface-700'
+            }`}
+          >
+            {k === 'generate' ? <><QrCode className="w-4 h-4" /> Generator</> : <><Scan className="w-4 h-4" /> Scanner</>}
+          </button>
+        ))}
+      </div>
+
+      {sub === 'generate' ? (
+        <QRGenerator defaultText={profileText} />
+      ) : (
+        <QRScanner />
+      )}
+    </div>
   );
 }

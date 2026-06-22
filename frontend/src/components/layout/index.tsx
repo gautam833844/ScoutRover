@@ -5,22 +5,21 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { clsx } from 'clsx';
 import {
-  LayoutDashboard, Map, QrCode, User, Settings, LogOut,
+  LayoutDashboard, Map, User, Settings, LogOut,
   Menu, X, Sun, Moon, ChevronLeft, Compass,
-  Wifi, WifiOff
+  Wifi, WifiOff, Activity, Shield
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Avatar, Button, Tooltip } from '@/components/ui';
 import { APP_CONFIG, ROUTES } from '@/constants';
 
-// ========== SIDEBAR NAV ITEMS ==========
+// ========== SIDEBAR NAV ITEMS — QR removed, lives in Profile now ==========
 const navItems = [
   { label: 'Dashboard', href: ROUTES.DASHBOARD, icon: <LayoutDashboard className="w-5 h-5" /> },
-  { label: 'Maps', href: ROUTES.MAPS, icon: <Map className="w-5 h-5" /> },
-  { label: 'QR Code', href: ROUTES.QR_CODE, icon: <QrCode className="w-5 h-5" /> },
-  { label: 'Profile', href: ROUTES.PROFILE, icon: <User className="w-5 h-5" /> },
-  { label: 'Settings', href: ROUTES.SETTINGS, icon: <Settings className="w-5 h-5" /> },
+  { label: 'Maps',      href: ROUTES.MAPS,      icon: <Map className="w-5 h-5" /> },
+  { label: 'Profile',   href: ROUTES.PROFILE,   icon: <User className="w-5 h-5" /> },
+  { label: 'Settings',  href: ROUTES.SETTINGS,  icon: <Settings className="w-5 h-5" /> },
 ];
 
 // ========== HEADER ==========
@@ -28,15 +27,16 @@ export function Header() {
   const { user, isAuthenticated } = useAuth();
   const { resolvedTheme, toggleTheme } = useTheme();
   const pathname = usePathname();
+
   const isAuthPage = ([ROUTES.LOGIN, ROUTES.REGISTER, ROUTES.FORGOT_PASSWORD] as readonly string[]).includes(pathname);
   const isHomePage = pathname === '/';
 
   return (
     <header className={clsx(
-      'sticky top-0 z-40 w-full border-b transition-colors duration-300',
+      'top-0 z-50 w-full border-b transition-all duration-300',
       isHomePage
-        ? 'bg-transparent border-transparent absolute'
-        : 'bg-white/80 dark:bg-dark-bg/80 backdrop-blur-xl border-surface-200 dark:border-white/[0.06]'
+        ? 'absolute bg-transparent border-transparent'
+        : 'sticky bg-white/90 dark:bg-dark-bg/90 backdrop-blur-xl border-surface-200 dark:border-white/[0.06]'
     )}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
         {/* Logo */}
@@ -178,7 +178,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/90 dark:bg-dark-card/90 backdrop-blur-xl border-t border-surface-200 dark:border-white/[0.06] safe-area-bottom">
         <div className="flex items-center justify-around h-16 px-2">
-          {navItems.slice(0, 5).map(item => {
+          {navItems.map(item => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <Link
@@ -207,7 +207,7 @@ export function Footer() {
   return (
     <footer className="border-t border-surface-200 dark:border-white/[0.08] bg-white dark:bg-dark-bg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
           {/* Brand */}
           <div className="md:col-span-2">
             <div className="flex items-center gap-2.5 mb-4">
@@ -216,26 +216,34 @@ export function Footer() {
               </div>
               <span className="text-lg font-bold text-surface-900 dark:text-white">{APP_CONFIG.name}</span>
             </div>
-            <p className="text-sm text-surface-500 dark:text-surface-400 max-w-sm leading-relaxed">
-              {APP_CONFIG.description}. Built with cutting-edge technology for autonomous navigation and real-time mapping.
+            <p className="text-sm text-surface-500 dark:text-surface-400 max-w-sm leading-relaxed mb-4">
+              {APP_CONFIG.description}. Built with ROS, LiDAR, and real-time WebSocket control for autonomous exploration.
             </p>
+            <div className="flex items-center gap-1 text-xs text-surface-400">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>System operational</span>
+            </div>
           </div>
 
-          {/* Links */}
+          {/* Platform links — direct to dashboard sections */}
           <div>
-            <h4 className="font-semibold text-surface-900 dark:text-white mb-3">Product</h4>
-            <ul className="space-y-2 text-sm text-surface-500 dark:text-surface-400">
-              <li><Link href={ROUTES.DASHBOARD} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors">Dashboard</Link></li>
-              <li><Link href={ROUTES.MAPS} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors">Maps</Link></li>
-              <li><Link href={ROUTES.QR_CODE} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors">QR Code</Link></li>
+            <h4 className="font-semibold text-surface-900 dark:text-white mb-4 text-sm uppercase tracking-wider">Platform</h4>
+            <ul className="space-y-2.5 text-sm text-surface-500 dark:text-surface-400">
+              <li><Link href={ROUTES.DASHBOARD} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><LayoutDashboard className="w-3.5 h-3.5" /> Dashboard</Link></li>
+              <li><Link href={ROUTES.MAPS} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><Map className="w-3.5 h-3.5" /> Maps & Routes</Link></li>
+              <li><Link href={ROUTES.PROFILE} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><User className="w-3.5 h-3.5" /> Profile & QR</Link></li>
+              <li><Link href={ROUTES.SETTINGS} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><Settings className="w-3.5 h-3.5" /> Settings</Link></li>
             </ul>
           </div>
 
+          {/* Rover & ROS links */}
           <div>
-            <h4 className="font-semibold text-surface-900 dark:text-white mb-3">Account</h4>
-            <ul className="space-y-2 text-sm text-surface-500 dark:text-surface-400">
-              <li><Link href={ROUTES.PROFILE} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors">Profile</Link></li>
-              <li><Link href={ROUTES.SETTINGS} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors">Settings</Link></li>
+            <h4 className="font-semibold text-surface-900 dark:text-white mb-4 text-sm uppercase tracking-wider">Rover</h4>
+            <ul className="space-y-2.5 text-sm text-surface-500 dark:text-surface-400">
+              <li><Link href={ROUTES.SETTINGS + '#rover'} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><Wifi className="w-3.5 h-3.5" /> Connection Config</Link></li>
+              <li><Link href={ROUTES.SETTINGS + '#mapping'} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><Activity className="w-3.5 h-3.5" /> Mapping Algorithm</Link></li>
+              <li><Link href={ROUTES.DASHBOARD} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><WifiOff className="w-3.5 h-3.5" /> Live Control</Link></li>
+              <li><Link href={ROUTES.MAPS} className="hover:text-brand-600 dark:hover:text-brand-400 transition-colors flex items-center gap-2"><Shield className="w-3.5 h-3.5" /> Export Maps</Link></li>
             </ul>
           </div>
         </div>

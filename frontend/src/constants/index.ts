@@ -20,12 +20,26 @@ export const APP_CONFIG = {
 } as const;
 
 // ========== ROS CONFIG ==========
+// Priority: localStorage (user-set in Settings) → .env → hardcoded fallback
+const getStoredRosUrl = (): string => {
+  if (typeof window === 'undefined') return process.env.NEXT_PUBLIC_ROS_URL || 'ws://192.168.137.85:9090';
+  return localStorage.getItem('scoutrover_ros_url') || process.env.NEXT_PUBLIC_ROS_URL || 'ws://192.168.137.85:9090';
+};
+
+const getStoredMapTopic = (): string => {
+  if (typeof window === 'undefined') return '/map';
+  try {
+    const cfg = JSON.parse(localStorage.getItem('scoutrover_mapping_config') || '{}');
+    return cfg.mapTopic || '/map';
+  } catch { return '/map'; }
+};
+
 export const ROS_CONFIG = {
-  url: process.env.NEXT_PUBLIC_ROS_URL || 'ws://192.168.137.85:9090',
+  get url() { return getStoredRosUrl(); },
+  get mapTopic() { return getStoredMapTopic(); },
   reconnectInterval: 3000,
   connectionTimeout: 8000,
   cmdVelTopic: '/cmd_vel',
-  mapTopic: '/map',
   sysCommandTopic: '/syscommand',
   mapThrottleRate: 5000,
   cmdSendInterval: 100,
