@@ -313,7 +313,7 @@ function MapComponent() {
       ros.on('error', (err: any) => {
         setRosStatus('disconnected');
         showError('ROS Error', `Connection failed at ${ROS_CONFIG.url}`);
-        console.error(err);
+        console.warn('[ROS] connection error:', err);
       });
 
       ros.on('close', () => {
@@ -322,7 +322,7 @@ function MapComponent() {
     } catch (err) {
       setRosStatus('disconnected');
       showError('Import Error', 'Failed to connect to ROS bridge');
-      console.error(err);
+      console.warn('[ROS] import/connect error:', err);
     }
   }, [info, showError, mappingConfig]);
 

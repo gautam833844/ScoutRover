@@ -130,7 +130,7 @@ export default function DashboardPage() {
       ros.on('error', (err: any) => {
         setRosStatus('disconnected');
         showError('Connection failed', `Could not reach rosbridge at ${ROS_CONFIG.url}`);
-        console.error('[ROS] connection error:', err);
+        console.warn('[ROS] connection error:', err);
       });
 
       ros.on('close', () => {
@@ -138,7 +138,7 @@ export default function DashboardPage() {
       });
     } catch (err) {
       setRosStatus('disconnected');
-      console.error('[ROS] import/connect error:', err);
+      console.warn('[ROS] import/connect error:', err);
       showError('Connection failed', `Could not reach rosbridge at ${ROS_CONFIG.url}`);
     }
   }, [info, showError, drawMap]);
