@@ -1,5 +1,4 @@
 import { Request, Response, NextFunction } from 'express';
-import ApiError from '../utils/apiError';
 import logger from '../utils/logger';
 import { env } from '../config/env';
 

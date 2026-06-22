@@ -4,6 +4,7 @@ import React, { forwardRef, ButtonHTMLAttributes, InputHTMLAttributes, TextareaH
 import { clsx } from 'clsx';
 import { X, Check, AlertCircle, Info, AlertTriangle, ChevronDown, Search, Loader2, Eye, EyeOff } from 'lucide-react';
 import { ToastType } from '@/types';
+import { getPasswordStrength } from '@/utils/validators';
 
 // ========== BUTTON ==========
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -436,7 +437,6 @@ export function ToastContainer({ toasts, onRemove }: { toasts: import('@/types')
 
 // ========== PASSWORD STRENGTH BAR ==========
 export function PasswordStrength({ password }: { password: string }) {
-  const { getPasswordStrength } = require('@/utils/validators');
   const { score, label, color } = getPasswordStrength(password);
   if (!password) return null;
 

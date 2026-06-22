@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Inter & Outfit (SaaS Premium)",
+    "description": "Sleek and rounded sans-serif pairing for premium SaaS dashboards and interfaces.",
+    "headings": "font-family: 'Outfit', sans-serif; font-weight: 700;",
+    "body": "font-family: 'Inter', sans-serif; font-weight: 400; line-height: 1.6;"
+  },
+  {
+    "name": "Fira Code & Space Grotesk (Tech/Dev)",
+    "description": "Edgy and high-tech feel for developer tooling, telemetry, and control systems.",
+    "headings": "font-family: 'Space Grotesk', sans-serif; font-weight: 600;",
+    "body": "font-family: 'Fira Code', monospace; font-weight: 400; line-height: 1.5;"
+  },
+  {
+    "name": "Outfit & Outfit (Monolithic modern)",
+    "description": "Clean, geometrically aligned design structure suitable for minimalist rover layouts.",
+    "headings": "font-family: 'Outfit', sans-serif; font-weight: 800; letter-spacing: -0.02em;",
+    "body": "font-family: 'Outfit', sans-serif; font-weight: 300;"
+  }
+]

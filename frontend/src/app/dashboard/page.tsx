@@ -31,47 +31,7 @@ export default function DashboardPage() {
   // Ref to hold the most recent occupancy grid data structure from ROS
   const lastMapMessageRef = useRef<any>(null);
 
-  // ROS Connection
-  const connectToROS = useCallback(() => {
-    if (typeof window === 'undefined' || !(window as any).ROSLIB) return;
 
-    setRosStatus('connecting');
-    try {
-      const ros = new (window as any).ROSLIB.Ros({ url: ROS_CONFIG.url });
-      rosRef.current = ros;
-
-      ros.on('connection', () => {
-        setRosStatus('connected');
-        info('Connected', 'ROS bridge connected successfully');
-
-        // Setup velocity topics
-        cmdVelRef.current = new (window as any).ROSLIB.Topic({
-          ros, name: ROS_CONFIG.cmdVelTopic, messageType: 'geometry_msgs/Twist',
-        });
-
-        // Setup LiDAR mapping listeners
-        const mapListener = new (window as any).ROSLIB.Topic({
-          ros, name: ROS_CONFIG.mapTopic, messageType: 'nav_msgs/OccupancyGrid',
-          throttle_rate: ROS_CONFIG.mapThrottleRate, queue_length: 1,
-        });
-        mapListener.subscribe((message: any) => {
-          lastMapMessageRef.current = message;
-          drawMap(message);
-          setLastMapUpdate(new Date().toISOString());
-        });
-      });
-
-      ros.on('error', () => {
-        setRosStatus('disconnected');
-      });
-
-      ros.on('close', () => {
-        setRosStatus('disconnected');
-      });
-    } catch {
-      setRosStatus('disconnected');
-    }
-  }, [info]);
 
   // Draw LiDAR Map from ROS occupancy grids
   const drawMap = useCallback((map: any) => {
@@ -123,6 +83,48 @@ export default function DashboardPage() {
     }
     ctx.putImageData(imageData, 0, 0);
   }, []);
+
+  // ROS Connection
+  const connectToROS = useCallback(() => {
+    if (typeof window === 'undefined' || !(window as any).ROSLIB) return;
+
+    setRosStatus('connecting');
+    try {
+      const ros = new (window as any).ROSLIB.Ros({ url: ROS_CONFIG.url });
+      rosRef.current = ros;
+
+      ros.on('connection', () => {
+        setRosStatus('connected');
+        info('Connected', 'ROS bridge connected successfully');
+
+        // Setup velocity topics
+        cmdVelRef.current = new (window as any).ROSLIB.Topic({
+          ros, name: ROS_CONFIG.cmdVelTopic, messageType: 'geometry_msgs/Twist',
+        });
+
+        // Setup LiDAR mapping listeners
+        const mapListener = new (window as any).ROSLIB.Topic({
+          ros, name: ROS_CONFIG.mapTopic, messageType: 'nav_msgs/OccupancyGrid',
+          throttle_rate: ROS_CONFIG.mapThrottleRate, queue_length: 1,
+        });
+        mapListener.subscribe((message: any) => {
+          lastMapMessageRef.current = message;
+          drawMap(message);
+          setLastMapUpdate(new Date().toISOString());
+        });
+      });
+
+      ros.on('error', () => {
+        setRosStatus('disconnected');
+      });
+
+      ros.on('close', () => {
+        setRosStatus('disconnected');
+      });
+    } catch {
+      setRosStatus('disconnected');
+    }
+  }, [info, drawMap]);
 
   // Rover Movement commands
   const sendCmd = useCallback((direction: string) => {

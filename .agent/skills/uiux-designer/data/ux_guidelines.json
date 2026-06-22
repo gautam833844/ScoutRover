@@ -1,0 +1,26 @@
+[
+  {
+    "category": "Dashboard Layouts",
+    "rule": "Avoid cluttered main viewports; implement collapsible sidebars and tabbed layouts.",
+    "priority": "HIGH",
+    "details": "Always place primary metrics on the top left or top bar. Sidebars should collapse cleanly to icon-only layouts on smaller screens."
+  },
+  {
+    "category": "Data Density",
+    "rule": "For real-time telemetry or mapping data, use compact tables with line-height of 1.25 to 1.4.",
+    "priority": "MEDIUM",
+    "details": "Ensure headers remain sticky during vertical scrolls, and highlight active rows with subtle transition animations."
+  },
+  {
+    "category": "Chart Selections",
+    "rule": "Use Line/Area charts for time-series tracking (LiDAR sweeps/speed telemetry) and Pie/Donut charts ONLY for parts of a whole (status codes breakdown).",
+    "priority": "HIGH",
+    "details": "Limit pie chart slices to 5 or fewer. For multi-variable tracking, prefer layered area plots."
+  },
+  {
+    "category": "Loading States",
+    "rule": "Never show a blank page. Use custom skeleton loaders mimicking actual component boundaries.",
+    "priority": "HIGH",
+    "details": "Animate skeleton components with a subtle left-to-right pulse gradient."
+  }
+]

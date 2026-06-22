@@ -155,56 +155,7 @@ function MapComponent() {
     loadMarkersAndRoutes();
   }, [loadMarkersAndRoutes]);
 
-  // Initialize leaflet map
-  useEffect(() => {
-    if (typeof window === 'undefined' || !mapContainerRef.current) return;
 
-    import('leaflet').then((L) => {
-      leafletRef.current = L;
-      
-      // Fix Leaflet marker pathing issue
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-      });
-
-      if (mapRef.current) return; // Prevent double init
-
-      const map = L.map(mapContainerRef.current!, {
-        center: [MAP_CONFIG.defaultCenter.lat, MAP_CONFIG.defaultCenter.lng],
-        zoom: MAP_CONFIG.defaultZoom,
-        zoomControl: false,
-      });
-
-      tileLayerRef.current = L.tileLayer(MAP_CONFIG.tileProviders.standard.url, {
-        attribution: MAP_CONFIG.tileProviders.standard.attribution,
-        maxZoom: MAP_CONFIG.maxZoom,
-      }).addTo(map);
-
-      markersLayerRef.current = L.layerGroup().addTo(map);
-      routeLayerRef.current = L.layerGroup().addTo(map);
-      mapRef.current = map;
-
-      // Click to add marker or route point
-      map.on('click', (e: any) => {
-        const { lat, lng } = e.latlng;
-        if ((window as any).__routeMode) {
-          addRoutePoint(lat, lng);
-        } else {
-          handleMapClickAddMarker(lat, lng);
-        }
-      });
-    });
-
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync route mode state to global window context for leaflet listener
   useEffect(() => {
@@ -342,6 +293,57 @@ function MapComponent() {
       return newPoints;
     });
   }, [loadMarkersAndRoutes]);
+
+  // Initialize leaflet map
+  useEffect(() => {
+    if (typeof window === 'undefined' || !mapContainerRef.current) return;
+
+    import('leaflet').then((L) => {
+      leafletRef.current = L;
+      
+      // Fix Leaflet marker pathing issue
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      if (mapRef.current) return; // Prevent double init
+
+      const map = L.map(mapContainerRef.current!, {
+        center: [MAP_CONFIG.defaultCenter.lat, MAP_CONFIG.defaultCenter.lng],
+        zoom: MAP_CONFIG.defaultZoom,
+        zoomControl: false,
+      });
+
+      tileLayerRef.current = L.tileLayer(MAP_CONFIG.tileProviders.standard.url, {
+        attribution: MAP_CONFIG.tileProviders.standard.attribution,
+        maxZoom: MAP_CONFIG.maxZoom,
+      }).addTo(map);
+
+      markersLayerRef.current = L.layerGroup().addTo(map);
+      routeLayerRef.current = L.layerGroup().addTo(map);
+      mapRef.current = map;
+
+      // Click to add marker or route point
+      map.on('click', (e: any) => {
+        const { lat, lng } = e.latlng;
+        if ((window as any).__routeMode) {
+          addRoutePoint(lat, lng);
+        } else {
+          handleMapClickAddMarker(lat, lng);
+        }
+      });
+    });
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSaveRoute = async () => {
     if (routePoints.length < 2 || !selectedMap) return;

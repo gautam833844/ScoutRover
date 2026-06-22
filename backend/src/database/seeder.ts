@@ -42,7 +42,7 @@ export const seedDatabase = async () => {
     logger.info('  - Seeded Operator: operator@scoutrover.local / OperatorPassword123!');
 
     // Seed Viewer
-    const viewer = await User.create({
+    await User.create({
       email: 'viewer@scoutrover.local',
       password: 'ViewerPassword123!',
       role: 'VIEWER',
@@ -82,7 +82,7 @@ export const seedDatabase = async () => {
 
     logger.info('📍 Seeding sample markers...');
     
-    const marker1 = await Marker.create({
+    await Marker.create({
       mapId: sampleMap.id,
       title: 'Base Docking Station',
       description: 'Primary inductive charging pad and home coordinates',
@@ -91,7 +91,7 @@ export const seedDatabase = async () => {
       color: '#10b981', // emerald
     });
 
-    const marker2 = await Marker.create({
+    await Marker.create({
       mapId: sampleMap.id,
       title: 'Lidar Calibration Target Alpha',
       description: 'High reflectivity calibration target reference',

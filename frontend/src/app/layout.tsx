@@ -21,7 +21,12 @@ export const metadata: Metadata = {
   description: 'Real-time LiDAR mapping, SLAM navigation, and remote rover control. Professional-grade tools for autonomous exploration and mapping.',
   keywords: ['rover', 'mapping', 'LiDAR', 'SLAM', 'robotics', 'autonomous', 'navigation'],
   authors: [{ name: 'ScoutRover Team' }],
-  viewport: 'width=device-width, initial-scale=1, maximum-scale=5',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

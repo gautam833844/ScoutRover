@@ -66,7 +66,7 @@ app.get('/', (req, res) => {
 });
 
 // Capture non-existent routes
-app.use((req, res, next) => {
+app.use((req, res, _next) => {
   res.status(404).json({
     success: false,
     statusCode: 404,

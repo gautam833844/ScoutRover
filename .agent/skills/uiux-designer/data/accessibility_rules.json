@@ -1,0 +1,20 @@
+[
+  {
+    "ruleId": "WCAG-1.4.3",
+    "level": "AA",
+    "name": "Contrast (Minimum)",
+    "description": "Visual presentation of text and images of text has a contrast ratio of at least 4.5:1, except for large text (3:1)."
+  },
+  {
+    "ruleId": "WCAG-1.1.1",
+    "level": "A",
+    "name": "Non-text Content",
+    "description": "All non-text content that is presented to the user has a text alternative that serves the equivalent purpose (e.g. img alt, aria-label)."
+  },
+  {
+    "ruleId": "WCAG-2.1.1",
+    "level": "A",
+    "name": "Keyboard Accessible",
+    "description": "All functionality of the content is operable through a keyboard interface without requiring specific timings for individual keystrokes."
+  }
+]
