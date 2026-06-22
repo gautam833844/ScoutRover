@@ -21,7 +21,7 @@ export const APP_CONFIG = {
 
 // ========== ROS CONFIG ==========
 export const ROS_CONFIG = {
-  url: process.env.NEXT_PUBLIC_ROS_URL || 'ws://10.200.95.151:9090',
+  url: process.env.NEXT_PUBLIC_ROS_URL || 'ws://192.168.137.85:9090',
   reconnectInterval: 3000,
   connectionTimeout: 8000,
   cmdVelTopic: '/cmd_vel',

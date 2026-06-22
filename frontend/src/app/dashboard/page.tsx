@@ -84,13 +84,13 @@ export default function DashboardPage() {
     ctx.putImageData(imageData, 0, 0);
   }, []);
 
-  // ROS Connection
-  const connectToROS = useCallback(() => {
-    if (typeof window === 'undefined' || !(window as any).ROSLIB) return;
-
+  // ROS Connection — dynamically import roslib (browser-only, uses WebSocket)
+  // roslib v2 uses named exports: { Ros, Topic, Message } — no default export
+  const connectToROS = useCallback(async () => {
     setRosStatus('connecting');
     try {
-      const ros = new (window as any).ROSLIB.Ros({ url: ROS_CONFIG.url });
+      const { Ros, Topic } = await import('roslib');
+      const ros = new Ros({ url: ROS_CONFIG.url });
       rosRef.current = ros;
 
       ros.on('connection', () => {
@@ -98,12 +98,12 @@ export default function DashboardPage() {
         info('Connected', 'ROS bridge connected successfully');
 
         // Setup velocity topics
-        cmdVelRef.current = new (window as any).ROSLIB.Topic({
+        cmdVelRef.current = new Topic({
           ros, name: ROS_CONFIG.cmdVelTopic, messageType: 'geometry_msgs/Twist',
         });
 
         // Setup LiDAR mapping listeners
-        const mapListener = new (window as any).ROSLIB.Topic({
+        const mapListener = new Topic({
           ros, name: ROS_CONFIG.mapTopic, messageType: 'nav_msgs/OccupancyGrid',
           throttle_rate: ROS_CONFIG.mapThrottleRate, queue_length: 1,
         });
@@ -114,30 +114,36 @@ export default function DashboardPage() {
         });
       });
 
-      ros.on('error', () => {
+      ros.on('error', (err: any) => {
         setRosStatus('disconnected');
+        showError('Connection failed', `Could not reach rosbridge at ${ROS_CONFIG.url}`);
+        console.error('[ROS] connection error:', err);
       });
 
       ros.on('close', () => {
         setRosStatus('disconnected');
       });
-    } catch {
+    } catch (err) {
       setRosStatus('disconnected');
+      console.error('[ROS] import/connect error:', err);
+      showError('Connection failed', `Could not reach rosbridge at ${ROS_CONFIG.url}`);
     }
-  }, [info, drawMap]);
+  }, [info, showError, drawMap]);
 
   // Rover Movement commands
+  // roslib v2: no Message class — publish plain JS objects directly to Topic
   const sendCmd = useCallback((direction: string) => {
-    if (!cmdVelRef.current || !rosRef.current?.isConnected) return;
-    const twist = new (window as any).ROSLIB.Message({
-      linear: { x: 0, y: 0, z: 0 }, angular: { x: 0, y: 0, z: 0 },
-    });
+    if (!cmdVelRef.current) return;
     const s = ROS_CONFIG.linearSpeed;
     const a = ROS_CONFIG.angularSpeed;
-    if (direction === 'forward') twist.linear.x = s;
-    else if (direction === 'backward') twist.linear.x = -s;
-    else if (direction === 'left') twist.angular.z = a;
-    else if (direction === 'right') twist.angular.z = -a;
+    const twist = {
+      linear:  { x: 0, y: 0, z: 0 },
+      angular: { x: 0, y: 0, z: 0 },
+    };
+    if (direction === 'forward')  twist.linear.x   =  s;
+    else if (direction === 'backward') twist.linear.x  = -s;
+    else if (direction === 'left')     twist.angular.z  =  a;
+    else if (direction === 'right')    twist.angular.z  = -a;
     cmdVelRef.current.publish(twist);
   }, []);
 
