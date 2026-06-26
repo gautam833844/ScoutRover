@@ -17,10 +17,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'ScoutRover — Autonomous Mapping System',
+  title: 'Atlas — Autonomous Mapping System',
   description: 'Real-time LiDAR mapping, SLAM navigation, and remote rover control. Professional-grade tools for autonomous exploration and mapping.',
   keywords: ['rover', 'mapping', 'LiDAR', 'SLAM', 'robotics', 'autonomous', 'navigation'],
-  authors: [{ name: 'ScoutRover Team' }],
+  authors: [{ name: 'Atlas Team' }],
 };
 
 export const viewport = {

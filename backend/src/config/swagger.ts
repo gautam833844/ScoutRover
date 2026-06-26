@@ -1,11 +1,11 @@
 export const swaggerDocument = {
   openapi: '3.0.0',
   info: {
-    title: 'ScoutRover API',
+    title: 'Atlas API',
     version: '2.0.0',
-    description: 'REST API documentation for ScoutRover - Autonomous Mapping System',
+    description: 'REST API documentation for Atlas - Autonomous Mapping System',
     contact: {
-      name: 'ScoutRover Development Team',
+      name: 'Atlas Development Team',
     },
   },
   servers: [

@@ -41,9 +41,11 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-600 to-cyan-500 flex items-center justify-center shadow-glow group-hover:shadow-glow-lg transition-shadow">
-            <Compass className="w-5 h-5 text-white" />
-          </div>
+          <img 
+            src="/atlas-logo.jpg" 
+            alt="Atlas Logo" 
+            className="w-9 h-9 rounded-xl object-cover shadow-glow group-hover:shadow-glow-lg transition-all"
+          />
           <span className={clsx(
             'text-lg font-bold tracking-tight',
             isHomePage ? 'text-white' : 'text-surface-900 dark:text-white'
@@ -211,9 +213,11 @@ export function Footer() {
           {/* Brand */}
           <div className="md:col-span-2">
             <div className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-600 to-cyan-500 flex items-center justify-center">
-                <Compass className="w-5 h-5 text-white" />
-              </div>
+              <img 
+                src="/atlas-logo.jpg" 
+                alt="Atlas Logo" 
+                className="w-9 h-9 rounded-xl object-cover"
+              />
               <span className="text-lg font-bold text-surface-900 dark:text-white">{APP_CONFIG.name}</span>
             </div>
             <p className="text-sm text-surface-500 dark:text-surface-400 max-w-sm leading-relaxed mb-4">
@@ -292,9 +296,11 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
         <div className="absolute inset-0 bg-grid opacity-20" />
         <div className="absolute inset-0 bg-glow-gradient" />
         <div className="relative z-10 flex flex-col items-center justify-center p-12 text-center">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500 to-cyan-500 flex items-center justify-center mb-8 shadow-glow-lg animate-float">
-            <Compass className="w-10 h-10 text-white" />
-          </div>
+          <img 
+            src="/atlas-logo.jpg" 
+            alt="Atlas Logo" 
+            className="w-20 h-20 rounded-2xl object-cover mb-8 shadow-glow-lg animate-float"
+          />
           <h1 className="text-4xl font-bold text-white mb-4">{APP_CONFIG.name}</h1>
           <p className="text-lg text-white/60 max-w-md leading-relaxed">
             {APP_CONFIG.description}
@@ -318,9 +324,11 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
       <div className="flex-1 flex items-center justify-center p-6 sm:p-12 bg-white dark:bg-dark-bg">
         <div className="w-full max-w-md animate-fade-in-up">
           <Link href="/" className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-600 to-cyan-500 flex items-center justify-center">
-              <Compass className="w-5 h-5 text-white" />
-            </div>
+            <img 
+              src="/atlas-logo.jpg" 
+              alt="Atlas Logo" 
+              className="w-9 h-9 rounded-xl object-cover"
+            />
             <span className="text-lg font-bold text-surface-900 dark:text-white">{APP_CONFIG.name}</span>
           </Link>
           <h2 className="text-2xl font-bold text-surface-900 dark:text-white mb-1">{title}</h2>

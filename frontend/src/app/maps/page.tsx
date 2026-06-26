@@ -26,7 +26,7 @@ function cartesianDistance(p1: { lat: number; lng: number }, p2: { lat: number; 
 // ─── YAML/ROS Export helpers ─────────────────────────────────────────────
 function buildYAML(map: SavedMap): string {
   const lines = [
-    `# ScoutRover Map Export — ${map.name}`,
+    `# Atlas Map Export — ${map.name}`,
     `# Generated: ${new Date().toISOString()}`,
     ``,
     `map:`,
@@ -68,7 +68,7 @@ function buildPGM(map: SavedMap): Blob {
     if (v === 0)  return 254;   // free → white
     return 0;                   // occupied → black
   });
-  const header = `P2\n# ScoutRover Map: ${map.name}\n${w} ${h}\n255\n`;
+  const header = `P2\n# Atlas Map: ${map.name}\n${w} ${h}\n255\n`;
   const body = [];
   for (let y = 0; y < h; y++) {
     body.push(pixels.slice(y * w, (y + 1) * w).join(' '));

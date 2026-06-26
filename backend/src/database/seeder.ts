@@ -21,36 +21,36 @@ export const seedDatabase = async () => {
     
     // Seed Administrator
     const admin = await User.create({
-      email: 'admin@scoutrover.local',
+      email: 'admin@atlas.local',
       password: 'AdminPassword123!',
       role: 'ADMIN',
       firstName: 'System',
       lastName: 'Admin',
       avatar: '',
     });
-    logger.info('  - Seeded Admin: admin@scoutrover.local / AdminPassword123!');
+    logger.info('  - Seeded Admin: admin@atlas.local / AdminPassword123!');
 
     // Seed Operator
     const operator = await User.create({
-      email: 'operator@scoutrover.local',
+      email: 'operator@atlas.local',
       password: 'OperatorPassword123!',
       role: 'OPERATOR',
       firstName: 'Rover',
       lastName: 'Operator',
       avatar: '',
     });
-    logger.info('  - Seeded Operator: operator@scoutrover.local / OperatorPassword123!');
+    logger.info('  - Seeded Operator: operator@atlas.local / OperatorPassword123!');
 
     // Seed Viewer
     await User.create({
-      email: 'viewer@scoutrover.local',
+      email: 'viewer@atlas.local',
       password: 'ViewerPassword123!',
       role: 'VIEWER',
       firstName: 'Guest',
       lastName: 'Observer',
       avatar: '',
     });
-    logger.info('  - Seeded Viewer: viewer@scoutrover.local / ViewerPassword123!');
+    logger.info('  - Seeded Viewer: viewer@atlas.local / ViewerPassword123!');
 
     logger.info('🗺️ Seeding sample maps...');
     
@@ -123,7 +123,7 @@ export const seedDatabase = async () => {
       action: 'SYSTEM_INIT',
       description: 'Successfully initialized system and seeded baseline users and resources.',
       ipAddress: '127.0.0.1',
-      userAgent: 'ScoutRover Seeder Script',
+      userAgent: 'Atlas Seeder Script',
     });
 
     logger.info('🌱 Database seeding completed successfully.');

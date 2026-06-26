@@ -13,10 +13,10 @@ export const ROUTES = {
 
 // ========== APP CONFIG ==========
 export const APP_CONFIG = {
-  name: 'ScoutRover',
+  name: 'Atlas',
   description: 'Autonomous Mapping System — LiDAR Mapping, SLAM, and Web Control',
   version: '2.0.0',
-  author: 'ScoutRover Team',
+  author: 'Atlas Team',
 } as const;
 
 // ========== ROS CONFIG ==========

@@ -59,7 +59,7 @@ app.use('/api/v1', v1Routes);
 // Root route placeholder
 app.get('/', (req, res) => {
   res.json({
-    message: 'Welcome to ScoutRover Autonomous Mapping Dashboard API Server',
+    message: 'Welcome to Atlas Autonomous Mapping Dashboard API Server',
     documentation: '/api/docs',
     version: '2.0.0',
   });
@@ -82,7 +82,7 @@ const startServer = async () => {
   if (env.NODE_ENV !== 'test') {
     await connectDB();
     app.listen(env.PORT, () => {
-      logger.info(`🚀 ScoutRover Server is running in ${env.NODE_ENV} mode on port ${env.PORT}`);
+      logger.info(`🚀 Atlas Server is running in ${env.NODE_ENV} mode on port ${env.PORT}`);
       logger.info(`📖 API documentation available at http://localhost:${env.PORT}/api/docs`);
     });
   }

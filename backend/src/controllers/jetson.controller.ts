@@ -80,7 +80,7 @@ export const exportMapToJetson = async (req: RequestWithUser, res: Response, nex
     }
 
     // Construct PGM P2 text
-    const header = `P2\n# ScoutRover Map: ${map.name}\n${w} ${h}\n255\n`;
+    const header = `P2\n# Atlas Map: ${map.name}\n${w} ${h}\n255\n`;
     const rows: string[] = [];
     for (let y = 0; y < h; y++) {
       rows.push(pixels.slice(y * w, (y + 1) * w).join(' '));

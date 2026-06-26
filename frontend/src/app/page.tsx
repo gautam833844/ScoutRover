@@ -168,7 +168,7 @@ export default function HomePage() {
               Ready to Explore?
             </h2>
             <p className="text-white/70 max-w-xl mx-auto mb-8">
-              Start mapping your environment with ScoutRover&apos;s powerful autonomous system. Set up in minutes.
+              Start mapping your environment with Atlas&apos;s powerful autonomous system. Set up in minutes.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href={ROUTES.REGISTER}>

@@ -8,7 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().default(5000),
-  MONGODB_URI: z.string().default('mongodb://localhost:27017/scoutrover'),
+  MONGODB_URI: z.string().default('mongodb://localhost:27017/atlas'),
   JWT_SECRET: z.string().min(8),
   JWT_EXPIRES_IN: z.string().default('1d'),
   REFRESH_TOKEN_SECRET: z.string().min(8),
