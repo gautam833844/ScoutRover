@@ -47,10 +47,10 @@ export function Header() {
             className="w-9 h-9 rounded-xl object-cover shadow-glow group-hover:shadow-glow-lg transition-all"
           />
           <span className={clsx(
-            'text-lg font-bold tracking-tight',
+            'text-xl font-bold tracking-tight lowercase font-sans',
             isHomePage ? 'text-white' : 'text-surface-900 dark:text-white'
           )}>
-            {APP_CONFIG.name}
+            atlas
           </span>
         </Link>
 
@@ -218,7 +218,9 @@ export function Footer() {
                 alt="Atlas Logo" 
                 className="w-9 h-9 rounded-xl object-cover"
               />
-              <span className="text-lg font-bold text-surface-900 dark:text-white">{APP_CONFIG.name}</span>
+              <span className="text-xl font-bold tracking-tight lowercase text-surface-900 dark:text-white font-sans">
+                atlas
+              </span>
             </div>
             <p className="text-sm text-surface-500 dark:text-surface-400 max-w-sm leading-relaxed mb-4">
               {APP_CONFIG.description}. Built with ROS, LiDAR, and real-time WebSocket control for autonomous exploration.
@@ -301,7 +303,7 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
             alt="Atlas Logo" 
             className="w-20 h-20 rounded-2xl object-cover mb-8 shadow-glow-lg animate-float"
           />
-          <h1 className="text-4xl font-bold text-white mb-4">{APP_CONFIG.name}</h1>
+          <h1 className="text-4xl font-bold tracking-tight lowercase text-white mb-4 font-sans">atlas</h1>
           <p className="text-lg text-white/60 max-w-md leading-relaxed">
             {APP_CONFIG.description}
           </p>
@@ -329,7 +331,9 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
               alt="Atlas Logo" 
               className="w-9 h-9 rounded-xl object-cover"
             />
-            <span className="text-lg font-bold text-surface-900 dark:text-white">{APP_CONFIG.name}</span>
+            <span className="text-xl font-bold tracking-tight lowercase text-surface-900 dark:text-white font-sans">
+              atlas
+            </span>
           </Link>
           <h2 className="text-2xl font-bold text-surface-900 dark:text-white mb-1">{title}</h2>
           <p className="text-surface-500 dark:text-surface-400 mb-8">{subtitle}</p>
