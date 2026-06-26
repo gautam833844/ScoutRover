@@ -7,8 +7,11 @@ import { Header, Footer } from '@/components/layout';
 import { Button, Section } from '@/components/ui';
 import { FeatureCard } from '@/components/cards';
 import { ROUTES, APP_CONFIG } from '@/constants';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
+  const { isAuthenticated } = useAuth();
+
   return (
     <div className="bg-white dark:bg-dark-bg min-h-screen">
       <Header />
@@ -46,16 +49,26 @@ export default function HomePage() {
 
             {/* CTA Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
-              <Link href={ROUTES.REGISTER}>
-                <Button variant="primary" size="lg" iconRight={<ArrowRight className="w-5 h-5" />}>
-                  Get Started Free
-                </Button>
-              </Link>
-              <Link href={ROUTES.DASHBOARD}>
-                <Button variant="ghost" size="lg" className="!text-white/70 hover:!text-white hover:!bg-white/10 border border-white/10">
-                  View Dashboard
-                </Button>
-              </Link>
+              {isAuthenticated ? (
+                <Link href={ROUTES.DASHBOARD}>
+                  <Button variant="primary" size="lg" iconRight={<ArrowRight className="w-5 h-5" />}>
+                    View Dashboard
+                  </Button>
+                </Link>
+              ) : (
+                <>
+                  <Link href={ROUTES.LOGIN}>
+                    <Button variant="primary" size="lg" iconRight={<ArrowRight className="w-5 h-5" />}>
+                      Sign In
+                    </Button>
+                  </Link>
+                  <Link href={ROUTES.REGISTER}>
+                    <Button variant="ghost" size="lg" className="!text-white/70 hover:!text-white hover:!bg-white/10 border border-white/10">
+                      Get Started
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
 
             {/* Stats */}
