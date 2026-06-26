@@ -42,7 +42,7 @@ export function Header() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
           <img 
-            src="/atlas-logo.jpg" 
+            src="/atlas-logo.png" 
             alt="Atlas Logo" 
             className="w-9 h-9 rounded-xl object-cover shadow-glow group-hover:shadow-glow-lg transition-all"
           />
@@ -214,7 +214,7 @@ export function Footer() {
           <div className="md:col-span-2">
             <div className="flex items-center gap-2.5 mb-4">
               <img 
-                src="/atlas-logo.jpg" 
+                src="/atlas-logo.png" 
                 alt="Atlas Logo" 
                 className="w-9 h-9 rounded-xl object-cover"
               />
@@ -299,7 +299,7 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
         <div className="absolute inset-0 bg-glow-gradient" />
         <div className="relative z-10 flex flex-col items-center justify-center p-12 text-center">
           <img 
-            src="/atlas-logo.jpg" 
+            src="/atlas-logo.png" 
             alt="Atlas Logo" 
             className="w-20 h-20 rounded-2xl object-cover mb-8 shadow-glow-lg animate-float"
           />
@@ -327,7 +327,7 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
         <div className="w-full max-w-md animate-fade-in-up">
           <Link href="/" className="flex items-center gap-2.5 mb-8 lg:hidden">
             <img 
-              src="/atlas-logo.jpg" 
+              src="/atlas-logo.png" 
               alt="Atlas Logo" 
               className="w-9 h-9 rounded-xl object-cover"
             />
