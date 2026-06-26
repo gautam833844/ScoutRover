@@ -40,7 +40,7 @@ export default function HomePage() {
 
             {/* Subtitle */}
             <p className="text-lg sm:text-xl text-white/50 max-w-2xl mx-auto leading-relaxed mb-10 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-              Real-time LiDAR mapping, SLAM navigation, and remote rover control — all from your browser.
+              Real-time LiDAR mapping, SLAM navigation, and remote rover control all from your browser.
               Professional-grade tools for exploration and mapping.
             </p>
 
@@ -61,7 +61,7 @@ export default function HomePage() {
             {/* Stats */}
             <div className="grid grid-cols-3 gap-8 mt-16 pt-8 border-t border-white/[0.06] max-w-xl mx-auto animate-fade-in-up" style={{ animationDelay: '0.6s' }}>
               {[
-                { value: '10K+', label: 'Maps Generated' },
+                { value: '100%', label: 'Maps Generated' },
                 { value: '99.9%', label: 'Uptime' },
                 { value: '50ms', label: 'Response Time' },
               ].map(stat => (
