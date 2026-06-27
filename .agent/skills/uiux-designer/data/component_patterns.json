@@ -1,0 +1,17 @@
+[
+  {
+    "component": "Sidebar Navigation",
+    "structure": "Logo header, scrollable links list with active icons, bottom user-profile card.",
+    "aesthetics": "Border-r 1px solid, transition-all duration-300, hover:bg-surface/50"
+  },
+  {
+    "component": "Telemetry Card",
+    "structure": "Small label header, big telemetry value (Outfit font), Sparkline trend chart, bottom percentage status indicator.",
+    "aesthetics": "Rounded-xl, shadow-sm, padding-6, transition-transform hover:-translate-y-1"
+  },
+  {
+    "component": "Data Table",
+    "structure": "Search header, actions row, striped table body with fixed headers, pagination footer.",
+    "aesthetics": "Text-left, overflow-hidden, rounded-lg, border 1px solid"
+  }
+]

@@ -1,0 +1,136 @@
+/* eslint-disable react-hooks/set-state-in-effect */
+'use client';
+
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { User, AuthState, LoginCredentials, RegisterData, Toast } from '@/types';
+import { authService } from '@/services/authService';
+
+interface AuthContextType extends AuthState {
+  login: (credentials: LoginCredentials) => Promise<void>;
+  register: (data: RegisterData) => Promise<void>;
+  logout: () => void;
+  resetPassword: (email: string) => Promise<void>;
+  updateProfile: (updates: Partial<User>) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  uploadAvatar: (formData: FormData) => Promise<void>;
+  loginAsGuest: () => void;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    isAuthenticated: false,
+    isLoading: true,
+  });
+
+  // Check for existing session on mount and refresh from server to sync roles
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('scoutrover_token') : null;
+    const cachedUser = authService.getCurrentUser();
+
+    if (token && cachedUser) {
+      setState({
+        user: cachedUser,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      // Background fetch fresh profile details to sync any role updates
+      authService.fetchCurrentUser()
+        .then(freshUser => {
+          setState({
+            user: freshUser,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        })
+        .catch(() => {
+          authService.logout();
+          setState({
+            user: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
+        });
+    } else {
+      setState({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+    }
+  }, []);
+
+  const login = useCallback(async (credentials: LoginCredentials) => {
+    const user = await authService.login(credentials);
+    setState({ user, isAuthenticated: true, isLoading: false });
+  }, []);
+
+  const register = useCallback(async (data: RegisterData) => {
+    const user = await authService.register(data);
+    setState({ user, isAuthenticated: true, isLoading: false });
+  }, []);
+
+  const logout = useCallback(() => {
+    authService.logout();
+    setState({ user: null, isAuthenticated: false, isLoading: false });
+  }, []);
+
+  const resetPassword = useCallback(async (email: string) => {
+    await authService.resetPassword(email);
+  }, []);
+
+  const updateProfile = useCallback(async (updates: Partial<User>) => {
+    if (!state.user) throw new Error('Not authenticated');
+    const user = await authService.updateProfile(state.user.id, updates);
+    setState(prev => ({ ...prev, user }));
+  }, [state.user]);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    if (!state.user) throw new Error('Not authenticated');
+    await authService.changePassword(state.user.id, currentPassword, newPassword);
+  }, [state.user]);
+
+  const uploadAvatar = useCallback(async (formData: FormData) => {
+    if (!state.user) throw new Error('Not authenticated');
+    const user = await authService.uploadAvatar(formData);
+    setState(prev => ({ ...prev, user }));
+  }, [state.user]);
+
+  const loginAsGuest = useCallback(() => {
+    const guestUser = {
+      id: 'guest-operator',
+      name: 'Demo Guest',
+      email: 'guest@atlas.io',
+      role: 'operator',
+      avatar: '',
+      bio: 'Read-only playground guest operator account.',
+      location: 'Atlas Virtual Arena',
+      phone: '',
+      joinedAt: new Date().toISOString(),
+    };
+    localStorage.setItem('scoutrover_token', 'mock-guest-token');
+    localStorage.setItem('scoutrover_session', JSON.stringify(guestUser));
+    setState({
+      user: guestUser,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{
+      ...state, login, register, logout, resetPassword, updateProfile, changePassword, uploadAvatar, loginAsGuest,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextType {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  return context;
+}

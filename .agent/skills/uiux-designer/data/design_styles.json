@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Glassmorphism",
+    "description": "Frosted glass effects, soft shadows, vibrant background gradients shining through surfaces.",
+    "cssRules": {
+      "backdrop-filter": "blur(12px) saturate(180%)",
+      "background": "rgba(255, 255, 255, 0.05)",
+      "border": "1px solid rgba(255, 255, 255, 0.075)",
+      "box-shadow": "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
+    }
+  },
+  {
+    "name": "Neo-Brutalism",
+    "description": "High contrast black borders, primary color block fills, offset hard drop shadows, thick typography.",
+    "cssRules": {
+      "border": "3px solid #000000",
+      "box-shadow": "6px 6px 0px 0px #000000",
+      "border-radius": "8px",
+      "font-weight": "800"
+    }
+  },
+  {
+    "name": "Sleek Minimal Dashboard",
+    "description": "Super clean lines, minimal gradients, low-contrast subtle borders, large breathing margins.",
+    "cssRules": {
+      "border-radius": "12px",
+      "border": "1px solid hsl(217.2, 32.6%, 17.5%)",
+      "background": "hsl(222.2, 84%, 8.9%)",
+      "padding": "24px"
+    }
+  }
+]
