@@ -21,7 +21,7 @@ export interface IMap extends Document {
   resolution: number;
   originX: number;
   originY: number;
-  gridData: string; // JSON stringified array of numbers
+  gridData: Buffer; // Raw binary buffer of grid cells
   createdBy: Types.ObjectId | string;
   createdAt: Date;
   updatedAt: Date;
@@ -29,10 +29,13 @@ export interface IMap extends Document {
 
 export interface IMarker extends Document {
   mapId: Types.ObjectId | string;
+  createdBy: Types.ObjectId | string;
   title: string;
   description?: string;
   lat: number;
   lng: number;
+  y?: number;
+  x?: number;
   color?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -41,10 +44,13 @@ export interface IMarker extends Document {
 export interface IRoutePoint {
   lat: number;
   lng: number;
+  y?: number;
+  x?: number;
 }
 
 export interface IRoute extends Document {
   mapId: Types.ObjectId | string;
+  createdBy: Types.ObjectId | string;
   name: string;
   points: IRoutePoint[];
   distance: number;

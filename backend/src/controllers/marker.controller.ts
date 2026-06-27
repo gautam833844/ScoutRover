@@ -57,11 +57,11 @@ export const getMarkerById = async (req: RequestWithUser, res: Response, next: N
 
 export const updateMarker = async (req: RequestWithUser, res: Response, next: NextFunction) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) {
+    const user = req.user;
+    if (!user) {
       throw new ApiError(401, 'Unauthorized');
     }
-    const marker = await markerService.updateMarker(req.params.id, req.body, userId);
+    const marker = await markerService.updateMarker(req.params.id, req.body, user);
     res.status(200).json(new ApiResponse(200, marker, 'Marker updated successfully.'));
   } catch (error) {
     next(error);
@@ -70,11 +70,11 @@ export const updateMarker = async (req: RequestWithUser, res: Response, next: Ne
 
 export const deleteMarker = async (req: RequestWithUser, res: Response, next: NextFunction) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) {
+    const user = req.user;
+    if (!user) {
       throw new ApiError(401, 'Unauthorized');
     }
-    await markerService.deleteMarker(req.params.id, userId);
+    await markerService.deleteMarker(req.params.id, user);
     res.status(200).json(new ApiResponse(200, null, 'Marker deleted successfully.'));
   } catch (error) {
     next(error);

@@ -47,6 +47,12 @@ export const errorHandler = (
     message = 'Your token has expired. Please log in again.';
   }
 
+  // Mongoose version conflict error (optimistic concurrency control)
+  if (err.name === 'VersionError') {
+    statusCode = 409;
+    message = 'Conflict: The map has been modified by another operator. Please reload and try again.';
+  }
+
   const response = {
     success: false,
     statusCode,

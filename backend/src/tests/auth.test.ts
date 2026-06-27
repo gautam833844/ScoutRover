@@ -1,8 +1,10 @@
 import request from 'supertest';
 import app from '../app';
 import User from '../models/User';
+import ResetToken from '../models/ResetToken';
 
 jest.mock('../models/User');
+jest.mock('../models/ResetToken');
 
 jest.mock('../services/audit.service', () => {
   return {
@@ -126,6 +128,67 @@ describe('Auth API Endpoints', () => {
       expect(response.body.data.accessToken).toBeDefined();
       expect(response.body.data.refreshToken).toBeDefined();
       expect(response.body.data.user.email).toBe('test@scoutrover.local');
+    });
+  });
+
+  describe('POST /api/v1/auth/forgot-password', () => {
+    it('should send reset link successfully if user exists', async () => {
+      const mockUser = {
+        id: 'mock_user_id_123',
+        email: 'test@scoutrover.local',
+        firstName: 'Test',
+        lastName: 'User',
+      };
+
+      (User.findOne as jest.Mock).mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockUser),
+      });
+
+      (ResetToken.deleteMany as jest.Mock).mockResolvedValue({});
+      (ResetToken.create as jest.Mock).mockResolvedValue({});
+
+      const response = await request(app)
+        .post('/api/v1/auth/forgot-password')
+        .send({
+          email: 'test@scoutrover.local',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(ResetToken.create).toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /api/v1/auth/reset-password', () => {
+    it('should successfully reset user password when token is valid', async () => {
+      const mockRecord = {
+        token: 'valid_token_123',
+        userId: 'mock_user_id_123',
+        expiresAt: new Date(Date.now() + 3600000),
+      };
+
+      const mockUser = {
+        id: 'mock_user_id_123',
+        password: 'old_password',
+        save: jest.fn().mockResolvedValue(this),
+      };
+
+      (ResetToken.findOne as jest.Mock).mockResolvedValue(mockRecord);
+      (ResetToken.deleteOne as jest.Mock).mockResolvedValue({});
+      (User.findById as jest.Mock).mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockUser),
+      });
+
+      const response = await request(app)
+        .post('/api/v1/auth/reset-password')
+        .send({
+          token: 'valid_token_123',
+          password: 'NewPassword123!',
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(mockUser.save).toHaveBeenCalled();
     });
   });
 });

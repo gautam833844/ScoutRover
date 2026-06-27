@@ -6,11 +6,7 @@ import ApiError from '../utils/apiError';
 import emailService from './email.service';
 import auditService from './audit.service';
 import crypto from 'crypto';
-
-// Password reset tokens in memory (or database, database is best, but memory or temp collection is fine. Let's use simple user object properties or a secure token hash)
-// Actually, we can store reset tokens on the User schema, but we don't have passwordResetToken on User schema.
-// We can use a simple temporary in-memory map for password reset tokens, which works perfectly for the scope.
-const resetTokens = new Map<string, { userId: string; expires: number }>();
+import { ResetToken } from '../models/ResetToken';
 
 export class AuthService {
   private userRepository: UserRepository;
@@ -42,7 +38,14 @@ export class AuthService {
       throw new ApiError(400, 'User with this email already exists');
     }
 
-    const user = await this.userRepository.create(data);
+    const isFirstUser = (await this.userRepository.count()) === 0;
+    const isLocalAdmin = data.email.toLowerCase() === 'admin@scoutrover.local' || data.email.toLowerCase().startsWith('admin@');
+    const role = (isFirstUser || isLocalAdmin) ? 'ADMIN' : 'VIEWER';
+
+    const user = await this.userRepository.create({
+      ...data,
+      role,
+    });
     
     // Log registration audit log
     await auditService.log({
@@ -137,8 +140,17 @@ export class AuthService {
 
     // Generate crypto token
     const token = crypto.randomBytes(32).toString('hex');
-    const expires = Date.now() + 3600000; // 1 hour expiration
-    resetTokens.set(token, { userId: user.id, expires });
+    const expiresAt = new Date(Date.now() + 3600000); // 1 hour expiration
+
+    // Clean up any existing tokens for this user first
+    await ResetToken.deleteMany({ userId: user.id });
+
+    // Save token to database
+    await ResetToken.create({
+      token,
+      userId: user.id,
+      expiresAt,
+    });
 
     // Send email asynchronously
     emailService.sendPasswordResetEmail(user.email, `${user.firstName} ${user.lastName}`, token).catch((err) => {
@@ -147,17 +159,17 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const record = resetTokens.get(token);
+    const record = await ResetToken.findOne({ token });
     if (!record) {
       throw new ApiError(400, 'Invalid or expired password reset token');
     }
 
-    if (Date.now() > record.expires) {
-      resetTokens.delete(token);
+    if (new Date() > record.expiresAt) {
+      await ResetToken.deleteOne({ token });
       throw new ApiError(400, 'Password reset token has expired');
     }
 
-    const user = await this.userRepository.findById(record.userId);
+    const user = await this.userRepository.findById(record.userId.toString());
     if (!user) {
       throw new ApiError(400, 'User not found');
     }
@@ -166,7 +178,7 @@ export class AuthService {
     await user.save();
 
     // Clean up reset token
-    resetTokens.delete(token);
+    await ResetToken.deleteOne({ token });
 
     // Log password reset audit trail
     await auditService.log({

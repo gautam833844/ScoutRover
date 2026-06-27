@@ -24,6 +24,8 @@ describe('Jetson Export API Endpoints', () => {
   const testExportsDir = path.join(__dirname, 'test_exports');
 
   beforeAll(() => {
+    // Configure environment variable for safe path verification in tests
+    process.env.JETSON_MAPS_PATH = testExportsDir;
     // Generate valid JWT
     token = jwt.sign(
       { userId: 'mock_admin_id', role: 'ADMIN' },
@@ -33,6 +35,8 @@ describe('Jetson Export API Endpoints', () => {
   });
 
   afterAll(() => {
+    // Cleanup environment variable
+    delete process.env.JETSON_MAPS_PATH;
     // Cleanup generated files
     if (fs.existsSync(testExportsDir)) {
       fs.rmSync(testExportsDir, { recursive: true, force: true });

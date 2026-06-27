@@ -57,11 +57,11 @@ export const getRouteById = async (req: RequestWithUser, res: Response, next: Ne
 
 export const updateRoute = async (req: RequestWithUser, res: Response, next: NextFunction) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) {
+    const user = req.user;
+    if (!user) {
       throw new ApiError(401, 'Unauthorized');
     }
-    const route = await routeService.updateRoute(req.params.id, req.body, userId);
+    const route = await routeService.updateRoute(req.params.id, req.body, user);
     res.status(200).json(new ApiResponse(200, route, 'Route updated successfully.'));
   } catch (error) {
     next(error);
@@ -70,11 +70,11 @@ export const updateRoute = async (req: RequestWithUser, res: Response, next: Nex
 
 export const deleteRoute = async (req: RequestWithUser, res: Response, next: NextFunction) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) {
+    const user = req.user;
+    if (!user) {
       throw new ApiError(401, 'Unauthorized');
     }
-    await routeService.deleteRoute(req.params.id, userId);
+    await routeService.deleteRoute(req.params.id, user);
     res.status(200).json(new ApiResponse(200, null, 'Route deleted successfully.'));
   } catch (error) {
     next(error);

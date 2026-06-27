@@ -9,8 +9,29 @@ export interface SavedMap {
   resolution: number;
   originX: number;
   originY: number;
-  gridData: number[]; // Grid array parsed from string
+  gridData: number[]; // Grid array parsed from string or base64
   createdAt: string;
+}
+
+// ========== HELPER BINARY/BASE64 UTILITIES ==========
+function byteArrayToBase64(arr: number[]): string {
+  const bytes = new Int8Array(arr);
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i] & 0xFF);
+  }
+  return window.btoa(binary);
+}
+
+function base64ToByteArray(base64: string): number[] {
+  const binaryString = window.atob(base64);
+  const len = binaryString.length;
+  const bytes = new Int8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return Array.from(bytes);
 }
 
 class MapService {
@@ -24,9 +45,10 @@ class MapService {
     originY: number;
     gridData: number[];
   }): Promise<SavedMap> {
+    const base64Grid = byteArrayToBase64(data.gridData);
     const rawMap = await apiClient.post<any>('/maps', {
       ...data,
-      gridData: JSON.stringify(data.gridData),
+      gridData: base64Grid,
     });
     
     return {
@@ -37,14 +59,13 @@ class MapService {
       resolution: rawMap.resolution,
       originX: rawMap.originX,
       originY: rawMap.originY,
-      gridData: JSON.parse(rawMap.gridData),
+      gridData: rawMap.gridData ? base64ToByteArray(rawMap.gridData) : [],
       createdAt: rawMap.createdAt,
     };
   }
 
-  async listMaps(): Promise<SavedMap[]> {
-    const response = await apiClient.get<any>('/maps?limit=100');
-    // Express response includes docs array in pagination payload
+  async listMaps(options: RequestInit = {}): Promise<SavedMap[]> {
+    const response = await apiClient.get<any>('/maps?limit=100', options);
     const docs = response.docs || [];
     
     return docs.map((rawMap: any) => ({
@@ -55,9 +76,25 @@ class MapService {
       resolution: rawMap.resolution,
       originX: rawMap.originX,
       originY: rawMap.originY,
-      gridData: JSON.parse(rawMap.gridData),
+      // Large gridData is projected away in list API (C3)
+      gridData: [],
       createdAt: rawMap.createdAt,
     }));
+  }
+
+  async getMapById(id: string, options: RequestInit = {}): Promise<SavedMap> {
+    const rawMap = await apiClient.get<any>(`/maps/${id}`, options);
+    return {
+      id: rawMap._id || rawMap.id,
+      name: rawMap.name,
+      width: rawMap.width,
+      height: rawMap.height,
+      resolution: rawMap.resolution,
+      originX: rawMap.originX,
+      originY: rawMap.originY,
+      gridData: rawMap.gridData ? base64ToByteArray(rawMap.gridData) : [],
+      createdAt: rawMap.createdAt,
+    };
   }
 
   async deleteMap(id: string): Promise<void> {

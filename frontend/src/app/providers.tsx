@@ -5,6 +5,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { ToastProvider, useToast } from '@/contexts/ToastContext';
 import { ToastContainer } from '@/components/ui';
+import { ROSProvider } from '@/contexts/ROSContext';
 
 function ToastRenderer() {
   const { toasts, removeToast } = useToast();
@@ -16,8 +17,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <AuthProvider>
         <ToastProvider>
-          {children}
-          <ToastRenderer />
+          <ROSProvider>
+            {children}
+            <ToastRenderer />
+          </ROSProvider>
         </ToastProvider>
       </AuthProvider>
     </ThemeProvider>

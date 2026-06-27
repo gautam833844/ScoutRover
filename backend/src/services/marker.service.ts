@@ -10,12 +10,15 @@ export class MarkerService {
   }
 
   async createMarker(data: any, userId: string) {
-    const marker = await this.markerRepository.create(data);
+    const marker = await this.markerRepository.create({
+      ...data,
+      createdBy: userId,
+    });
 
     await auditService.log({
       userId,
       action: 'MARKER_CREATE',
-      description: `Created waypoint marker: ${marker.title} at (${marker.lat}, ${marker.lng}) on Map ID: ${marker.mapId}`,
+      description: `Created waypoint marker: ${marker.title} on Map ID: ${marker.mapId}`,
     });
 
     return marker;
@@ -41,29 +44,43 @@ export class MarkerService {
     return marker;
   }
 
-  async updateMarker(id: string, updates: any, userId: string) {
-    const marker = await this.markerRepository.update(id, updates);
+  async updateMarker(id: string, updates: any, user: { userId: string; role: string }) {
+    const marker = await this.markerRepository.findById(id);
     if (!marker) {
       throw new ApiError(404, 'Marker not found');
     }
 
+    // Ownership check: must be owner or admin
+    if (marker.createdBy.toString() !== user.userId && user.role !== 'ADMIN') {
+      throw new ApiError(403, 'Forbidden: You do not own this waypoint marker.');
+    }
+
+    const updated = await this.markerRepository.update(id, updates);
+
     await auditService.log({
-      userId,
+      userId: user.userId,
       action: 'MARKER_UPDATE',
-      description: `Updated marker: ${marker.title} (ID: ${id})`,
+      description: `Updated marker: ${updated?.title} (ID: ${id})`,
     });
 
-    return marker;
+    return updated;
   }
 
-  async deleteMarker(id: string, userId: string) {
-    const marker = await this.markerRepository.delete(id);
+  async deleteMarker(id: string, user: { userId: string; role: string }) {
+    const marker = await this.markerRepository.findById(id);
     if (!marker) {
       throw new ApiError(404, 'Marker not found');
     }
 
+    // Ownership check: must be owner or admin
+    if (marker.createdBy.toString() !== user.userId && user.role !== 'ADMIN') {
+      throw new ApiError(403, 'Forbidden: You do not own this waypoint marker.');
+    }
+
+    await this.markerRepository.delete(id);
+
     await auditService.log({
-      userId,
+      userId: user.userId,
       action: 'MARKER_DELETE',
       description: `Deleted marker: ${marker.title} (ID: ${id})`,
     });

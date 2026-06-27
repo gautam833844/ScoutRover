@@ -22,8 +22,15 @@ export const APP_CONFIG = {
 // ========== ROS CONFIG ==========
 // Priority: localStorage (user-set in Settings) → .env → hardcoded fallback
 const getStoredRosUrl = (): string => {
-  if (typeof window === 'undefined') return process.env.NEXT_PUBLIC_ROS_URL || 'ws://192.168.137.85:9090';
-  return localStorage.getItem('scoutrover_ros_url') || process.env.NEXT_PUBLIC_ROS_URL || 'ws://192.168.137.85:9090';
+  if (typeof window === 'undefined') return process.env.NEXT_PUBLIC_ROS_URL || 'ws://localhost:9090';
+  const saved = localStorage.getItem('scoutrover_ros_url');
+  if (saved) return saved;
+  if (process.env.NEXT_PUBLIC_ROS_URL) return process.env.NEXT_PUBLIC_ROS_URL;
+  
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'ws://localhost:9090';
+  }
+  return 'ws://192.168.137.85:9090';
 };
 
 const getStoredMapTopic = (): string => {

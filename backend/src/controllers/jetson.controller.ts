@@ -25,10 +25,20 @@ export const exportMapToJetson = async (req: RequestWithUser, res: Response, nex
     }
 
     // Determine target directory: request body override -> env variable -> default local fallback
-    let targetDir = exportPath || process.env.JETSON_MAPS_PATH;
-    if (!targetDir) {
+    let baseDir = process.env.JETSON_MAPS_PATH;
+    if (!baseDir) {
       // Create exports directory inside backend if not configured
-      targetDir = path.join(process.cwd(), 'exports', 'maps');
+      baseDir = path.join(process.cwd(), 'exports', 'maps');
+    }
+    baseDir = path.resolve(baseDir);
+
+    let targetDir = baseDir;
+    if (exportPath) {
+      const resolvedPath = path.resolve(exportPath);
+      if (!resolvedPath.startsWith(baseDir)) {
+        throw new ApiError(400, 'Invalid export path. Access denied (path traversal or unauthorized directory target).');
+      }
+      targetDir = resolvedPath;
     }
 
     // Create directory recursively if it doesn't exist
@@ -55,11 +65,17 @@ export const exportMapToJetson = async (req: RequestWithUser, res: Response, nex
     ].join('\n');
 
     // 2. Build ROS-compatible ASCII PGM P2 content
-    let gridArray: number[] = [];
-    try {
-      gridArray = JSON.parse(map.gridData);
-    } catch (e) {
-      throw new ApiError(500, 'Failed to parse map grid data');
+    let gridArray: Int8Array | number[];
+    if (map.gridData && Buffer.isBuffer(map.gridData)) {
+      gridArray = new Int8Array(map.gridData.buffer, map.gridData.byteOffset, map.gridData.byteLength);
+    } else if (typeof map.gridData === 'string') {
+      try {
+        gridArray = JSON.parse(map.gridData);
+      } catch (e) {
+        throw new ApiError(500, 'Failed to parse legacy map grid data string');
+      }
+    } else {
+      throw new ApiError(500, 'Invalid map grid data storage type');
     }
 
     const w = map.width || 20;

@@ -25,14 +25,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: true,
   });
 
-  // Check for existing session on mount
+  // Check for existing session on mount and refresh from server to sync roles
   useEffect(() => {
-    const user = authService.getCurrentUser();
-    setState({
-      user,
-      isAuthenticated: !!user,
-      isLoading: false,
-    });
+    const token = typeof window !== 'undefined' ? localStorage.getItem('scoutrover_token') : null;
+    const cachedUser = authService.getCurrentUser();
+
+    if (token && cachedUser) {
+      setState({
+        user: cachedUser,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      // Background fetch fresh profile details to sync any role updates
+      authService.fetchCurrentUser()
+        .then(freshUser => {
+          setState({
+            user: freshUser,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+        })
+        .catch(() => {
+          authService.logout();
+          setState({
+            user: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
+        });
+    } else {
+      setState({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+    }
   }, []);
 
   const login = useCallback(async (credentials: LoginCredentials) => {

@@ -12,6 +12,7 @@ import { Button, Badge, Breadcrumb, Modal, Input } from '@/components/ui';
 import { StatCard, LinkCard } from '@/components/cards';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
+import { useROS } from '@/contexts/ROSContext';
 import { ROUTES, ROS_CONFIG } from '@/constants';
 import { timeAgo } from '@/utils/helpers';
 import mapService from '@/services/mapService';
@@ -29,8 +30,16 @@ const getActivityIcon = (action: string) => {
 export default function DashboardPage() {
   const { user } = useAuth();
   const { success, error: showError, info } = useToast();
-  const [rosStatus, setRosStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  const [lastMapUpdate, setLastMapUpdate] = useState<string | null>(null);
+  const {
+    rosStatus,
+    connectToROS,
+    disconnectFromROS,
+    liveGrid,
+    lastMapUpdate,
+    cmdVelTopic,
+    setIsLiveMode,
+  } = useROS();
+
   const [currentDirection, setCurrentDirection] = useState<string | null>(null);
   const [savingMap, setSavingMap] = useState(false);
   const [exportingToJetson, setExportingToJetson] = useState(false);
@@ -39,12 +48,7 @@ export default function DashboardPage() {
   const [activitiesLoading, setActivitiesLoading] = useState(false);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rosRef = useRef<any>(null);
-  const cmdVelRef = useRef<any>(null);
   const cmdIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Ref to hold the most recent occupancy grid data structure from ROS
-  const lastMapMessageRef = useRef<any>(null);
 
   // Read mapping config from localStorage (set in Settings)
   const [mappingConfig, setMappingConfig] = useState({ algoName: 'SLAM Toolbox', mapTopic: '/map' });
@@ -75,12 +79,21 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Draw LiDAR Map from ROS occupancy grids
-  const drawMap = useCallback((map: any) => {
-    const canvas = canvasRef.current;
-    if (!canvas || !map?.info || !map?.data) return;
+  // Sync live mode setting on mount/unmount
+  useEffect(() => {
+    setIsLiveMode(true);
+    return () => {
+      setIsLiveMode(false);
+    };
+  }, [setIsLiveMode]);
 
-    const { width, height } = map.info;
+  // Render live grid changes on canvas dynamically
+  useEffect(() => {
+    if (!liveGrid) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const { width, height, gridData } = liveGrid;
     const container = canvas.parentElement;
     if (!container) return;
 
@@ -95,7 +108,7 @@ export default function DashboardPage() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.fillStyle = '#1a1a2e';
+    ctx.fillStyle = '#0f172a'; // Slate-900 bg
     ctx.fillRect(0, 0, dw, dh);
     const imageData = ctx.createImageData(dw, dh);
 
@@ -104,18 +117,16 @@ export default function DashboardPage() {
         const mapX = Math.floor(x / scale);
         const mapY = Math.floor(y / scale);
         if (mapX >= width || mapY >= height) continue;
-        
-        const cell = map.data[mapY * width + mapX];
-        let r = 26, g = 26, b = 46;
-        
+
+        const cell = gridData[mapY * width + mapX];
+        let r = 15, g = 23, b = 42; // unknown slate-900
+
         if (cell === 0) {
-          r = 30; g = 41; b = 59; // empty/free space (dark slate)
+          r = 30; g = 41; b = 59; // free space slate-800
         } else if (cell > 0) {
-          r = 124; g = 58; b = 237; // obstacles/walls (purple)
-        } else {
-          r = 15; g = 23; b = 42; // unknown (near-black)
+          r = 57; g = 255; b = 20; // High-visibility Neon Green walls!
         }
-        
+
         const idx = (y * dw + x) * 4;
         imageData.data[idx] = r;
         imageData.data[idx + 1] = g;
@@ -124,59 +135,11 @@ export default function DashboardPage() {
       }
     }
     ctx.putImageData(imageData, 0, 0);
-  }, []);
+  }, [liveGrid]);
 
-  // ROS Connection — dynamically import roslib (browser-only, uses WebSocket)
-  // roslib v2 uses named exports: { Ros, Topic, Message } — no default export
-  const connectToROS = useCallback(async () => {
-    setRosStatus('connecting');
-    try {
-      const { Ros, Topic } = await import('roslib');
-      const ros = new Ros({ url: ROS_CONFIG.url });
-      rosRef.current = ros;
-
-      ros.on('connection', () => {
-        setRosStatus('connected');
-        info('Connected', 'ROS bridge connected successfully');
-
-        // Setup velocity topics
-        cmdVelRef.current = new Topic({
-          ros, name: ROS_CONFIG.cmdVelTopic, messageType: 'geometry_msgs/Twist',
-        });
-
-        // Setup LiDAR mapping listeners — use topic from saved mapping config
-        const mapTopic = mappingConfig.mapTopic || ROS_CONFIG.mapTopic;
-        const mapListener = new Topic({
-          ros, name: mapTopic, messageType: 'nav_msgs/OccupancyGrid',
-          throttle_rate: ROS_CONFIG.mapThrottleRate, queue_length: 1,
-        });
-        mapListener.subscribe((message: any) => {
-          lastMapMessageRef.current = message;
-          drawMap(message);
-          setLastMapUpdate(new Date().toISOString());
-        });
-      });
-
-      ros.on('error', (err: any) => {
-        setRosStatus('disconnected');
-        showError('Connection failed', `Could not reach rosbridge at ${ROS_CONFIG.url}`);
-        console.warn('[ROS] connection error:', err);
-      });
-
-      ros.on('close', () => {
-        setRosStatus('disconnected');
-      });
-    } catch (err) {
-      setRosStatus('disconnected');
-      console.warn('[ROS] import/connect error:', err);
-      showError('Connection failed', `Could not reach rosbridge at ${ROS_CONFIG.url}`);
-    }
-  }, [info, showError, drawMap]);
-
-  // Rover Movement commands
-  // roslib v2: no Message class — publish plain JS objects directly to Topic
+  // Rover Movement commands publishing to global cmdVelTopic
   const sendCmd = useCallback((direction: string) => {
-    if (!cmdVelRef.current) return;
+    if (!cmdVelTopic) return;
     const s = ROS_CONFIG.linearSpeed;
     const a = ROS_CONFIG.angularSpeed;
     const twist = {
@@ -187,11 +150,10 @@ export default function DashboardPage() {
     else if (direction === 'backward') twist.linear.x  = -s;
     else if (direction === 'left')     twist.angular.z  =  a;
     else if (direction === 'right')    twist.angular.z  = -a;
-    cmdVelRef.current.publish(twist);
-  }, []);
+    cmdVelTopic.publish(twist);
+  }, [cmdVelTopic]);
 
   const startCmd = useCallback((dir: string) => {
-    // Touch vibration haptics
     if (typeof navigator !== 'undefined' && navigator.vibrate) {
       navigator.vibrate(50);
     }
@@ -244,8 +206,7 @@ export default function DashboardPage() {
   const [onboardingStep, setOnboardingStep] = useState(1);
 
   const openSaveModal = (mode: 'save' | 'export') => {
-    const gridMsg = lastMapMessageRef.current;
-    if (!gridMsg || !gridMsg.info || !gridMsg.data) {
+    if (!liveGrid) {
       showError('No map data', 'Awaiting live LiDAR occupancy grid messages from ROS bridge.');
       return;
     }
@@ -261,8 +222,7 @@ export default function DashboardPage() {
     if (!modalMapName.trim()) return;
     setShowSaveModal(false);
     
-    const gridMsg = lastMapMessageRef.current;
-    if (!gridMsg || !gridMsg.info || !gridMsg.data) {
+    if (!liveGrid) {
       showError('No map data', 'Awaiting live LiDAR occupancy grid messages from ROS bridge.');
       return;
     }
@@ -272,12 +232,12 @@ export default function DashboardPage() {
       try {
         await mapService.saveMap({
           name: modalMapName.trim(),
-          width: gridMsg.info.width,
-          height: gridMsg.info.height,
-          resolution: gridMsg.info.resolution,
-          originX: gridMsg.info.origin?.position?.x || 0,
-          originY: gridMsg.info.origin?.position?.y || 0,
-          gridData: Array.from(gridMsg.data),
+          width: liveGrid.width,
+          height: liveGrid.height,
+          resolution: liveGrid.resolution,
+          originX: liveGrid.originX,
+          originY: liveGrid.originY,
+          gridData: Array.from(liveGrid.gridData),
         });
         success('Map saved', `LiDAR scan map '${modalMapName}' successfully stored in MongoDB.`);
       } catch (err: any) {
@@ -291,12 +251,12 @@ export default function DashboardPage() {
         // 1. Save map to DB first
         const savedMap = await mapService.saveMap({
           name: modalMapName.trim(),
-          width: gridMsg.info.width,
-          height: gridMsg.info.height,
-          resolution: gridMsg.info.resolution,
-          originX: gridMsg.info.origin?.position?.x || 0,
-          originY: gridMsg.info.origin?.position?.y || 0,
-          gridData: Array.from(gridMsg.data),
+          width: liveGrid.width,
+          height: liveGrid.height,
+          resolution: liveGrid.resolution,
+          originX: liveGrid.originX,
+          originY: liveGrid.originY,
+          gridData: Array.from(liveGrid.gridData),
         });
 
         // 2. Trigger push on backend

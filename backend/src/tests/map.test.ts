@@ -1,10 +1,14 @@
 import request from 'supertest';
 import app from '../app';
 import Map from '../models/Map';
+import Marker from '../models/Marker';
+import Route from '../models/Route';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 
 jest.mock('../models/Map');
+jest.mock('../models/Marker');
+jest.mock('../models/Route');
 
 jest.mock('../services/audit.service', () => {
   const mockAudit = {
@@ -99,6 +103,33 @@ describe('Map API Endpoints', () => {
       expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);
       expect(response.body.message).toContain('Request validation failed');
+    });
+  });
+
+  describe('DELETE /api/v1/maps/:id', () => {
+    it('should successfully delete map and trigger cascade delete for markers/routes', async () => {
+      const mockMap = {
+        _id: '507f1f77bcf86cd799439011',
+        name: 'Map to Delete',
+        gridData: Buffer.from([]),
+        toObject: function() { return this; }
+      };
+
+      (Map.findByIdAndDelete as jest.Mock).mockReturnValue({
+        exec: jest.fn().mockResolvedValue(mockMap),
+      });
+
+      (Marker.deleteMany as jest.Mock).mockResolvedValue({});
+      (Route.deleteMany as jest.Mock).mockResolvedValue({});
+
+      const response = await request(app)
+        .delete('/api/v1/maps/507f1f77bcf86cd799439011')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(Marker.deleteMany).toHaveBeenCalledWith({ mapId: '507f1f77bcf86cd799439011' });
+      expect(Route.deleteMany).toHaveBeenCalledWith({ mapId: '507f1f77bcf86cd799439011' });
     });
   });
 });

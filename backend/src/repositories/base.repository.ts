@@ -11,6 +11,10 @@ export class BaseRepository<T extends Document> {
     return this.model.create(data);
   }
 
+  async count(filter: FilterQuery<T> = {}): Promise<number> {
+    return this.model.countDocuments(filter);
+  }
+
   async findById(id: string, populate: string[] = []): Promise<T | null> {
     let query = this.model.findById(id) as any;
     populate.forEach((field) => {
@@ -51,6 +55,7 @@ export class BaseRepository<T extends Document> {
     search?: string;
     searchFields?: string[];
     populate?: string[];
+    select?: string | any;
   }): Promise<{
     docs: T[];
     totalDocs: number;
@@ -80,6 +85,10 @@ export class BaseRepository<T extends Document> {
     const sortStr = options.sort || '-createdAt';
 
     let query = this.model.find(queryFilter).sort(sortStr).skip(skip).limit(limit) as any;
+
+    if (options.select) {
+      query = query.select(options.select);
+    }
 
     if (options.populate) {
       options.populate.forEach((field) => {

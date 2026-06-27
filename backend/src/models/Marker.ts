@@ -8,6 +8,11 @@ const MarkerSchema = new Schema<IMarker>(
       ref: 'Map',
       required: true,
     },
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
     title: {
       type: String,
       required: true,
@@ -18,13 +23,15 @@ const MarkerSchema = new Schema<IMarker>(
       trim: true,
       default: '',
     },
-    lat: {
+    y: {
       type: Number,
       required: true,
+      alias: 'lat',
     },
-    lng: {
+    x: {
       type: Number,
       required: true,
+      alias: 'lng',
     },
     color: {
       type: String,
@@ -33,8 +40,12 @@ const MarkerSchema = new Schema<IMarker>(
   },
   {
     timestamps: true,
+    toObject: { virtuals: true, aliases: true },
+    toJSON: { virtuals: true, aliases: true },
   }
 );
+
+MarkerSchema.index({ mapId: 1, createdAt: -1 });
 
 export const Marker = mongoose.model<IMarker>('Marker', MarkerSchema);
 export default Marker;

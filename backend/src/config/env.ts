@@ -17,6 +17,7 @@ const envSchema = z.object({
   SMTP_PORT: z.coerce.number().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+  ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
 });
 
 const parsed = envSchema.safeParse(process.env);

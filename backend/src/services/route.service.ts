@@ -10,7 +10,10 @@ export class RouteService {
   }
 
   async createRoute(data: any, userId: string) {
-    const route = await this.routeRepository.create(data);
+    const route = await this.routeRepository.create({
+      ...data,
+      createdBy: userId,
+    });
 
     await auditService.log({
       userId,
@@ -41,29 +44,43 @@ export class RouteService {
     return route;
   }
 
-  async updateRoute(id: string, updates: any, userId: string) {
-    const route = await this.routeRepository.update(id, updates);
+  async updateRoute(id: string, updates: any, user: { userId: string; role: string }) {
+    const route = await this.routeRepository.findById(id);
     if (!route) {
       throw new ApiError(404, 'Route path not found');
     }
 
+    // Ownership check: must be creator or admin
+    if (route.createdBy.toString() !== user.userId && user.role !== 'ADMIN') {
+      throw new ApiError(403, 'Forbidden: You do not own this route.');
+    }
+
+    const updated = await this.routeRepository.update(id, updates);
+
     await auditService.log({
-      userId,
+      userId: user.userId,
       action: 'ROUTE_UPDATE',
-      description: `Updated route: ${route.name} (ID: ${id})`,
+      description: `Updated route: ${updated?.name} (ID: ${id})`,
     });
 
-    return route;
+    return updated;
   }
 
-  async deleteRoute(id: string, userId: string) {
-    const route = await this.routeRepository.delete(id);
+  async deleteRoute(id: string, user: { userId: string; role: string }) {
+    const route = await this.routeRepository.findById(id);
     if (!route) {
       throw new ApiError(404, 'Route path not found');
     }
 
+    // Ownership check: must be creator or admin
+    if (route.createdBy.toString() !== user.userId && user.role !== 'ADMIN') {
+      throw new ApiError(403, 'Forbidden: You do not own this route.');
+    }
+
+    await this.routeRepository.delete(id);
+
     await auditService.log({
-      userId,
+      userId: user.userId,
       action: 'ROUTE_DELETE',
       description: `Deleted route path: ${route.name} (ID: ${id})`,
     });

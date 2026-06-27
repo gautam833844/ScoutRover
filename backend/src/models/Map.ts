@@ -29,7 +29,7 @@ const MapSchema = new Schema<IMap>(
       required: true,
     },
     gridData: {
-      type: String, // Stringified JSON representation of the cell grid array
+      type: Buffer, // Binary representation of the occupancy grid
       required: true,
     },
     createdBy: {
@@ -40,8 +40,11 @@ const MapSchema = new Schema<IMap>(
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
   }
 );
+
+MapSchema.index({ createdBy: 1, createdAt: -1 });
 
 export const Map = mongoose.model<IMap>('Map', MapSchema);
 export default Map;

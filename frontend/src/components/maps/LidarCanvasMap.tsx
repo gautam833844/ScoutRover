@@ -5,7 +5,7 @@ import { Maximize, ZoomIn, ZoomOut, Compass, Eye, Ruler, Activity, Layers, Sun, 
 import { MapMarker, MapRoute } from '@/types';
 
 interface LidarCanvasMapProps {
-  gridData: number[];
+  gridData: number[] | Int8Array;
   width: number;
   height: number;
   resolution: number;
@@ -46,24 +46,24 @@ interface ThemeStyle {
 const THEMES: Record<MapTheme, ThemeStyle> = {
   cyberpunk: {
     bg: '#0b0b14',
-    unknown: '#050509',
-    free: '#16162a',
-    obstacle: '#a855f7', // Glowing violet
-    gridLines: 'rgba(139, 92, 246, 0.1)',
-    markerFill: '#06b6d4', // Neon Cyan
+    unknown: '#121222',
+    free: '#1a1a36',
+    obstacle: '#39ff14', // High-visibility Neon Green
+    gridLines: 'rgba(57, 255, 20, 0.1)',
+    markerFill: '#00ffff', // Neon Cyan
     markerOutline: '#ffffff',
-    routeLine: 'rgba(34, 197, 94, 0.5)', // Emerald
-    routePulse: '#22c55e',
-    plannedRoute: '#ef4444', // Red
-    roverFill: '#10b981', // Emerald rover
+    routeLine: 'rgba(0, 255, 255, 0.5)',
+    routePulse: '#00ffff',
+    plannedRoute: '#ef4444',
+    roverFill: '#39ff14',
     roverOutline: '#ffffff',
   },
   telemetry: {
     bg: '#021812',
     unknown: '#010c09',
     free: '#052e24',
-    obstacle: '#10b981', // Sonar Green
-    gridLines: 'rgba(16, 185, 129, 0.15)',
+    obstacle: '#39ff14', // High-visibility Neon Green
+    gridLines: 'rgba(57, 255, 20, 0.15)',
     markerFill: '#eab308', // Amber
     markerOutline: '#ffffff',
     routeLine: 'rgba(59, 130, 246, 0.5)', // Blue
@@ -76,7 +76,7 @@ const THEMES: Record<MapTheme, ThemeStyle> = {
     bg: '#0f172a',
     unknown: '#020617',
     free: '#1e293b',
-    obstacle: '#f8fafc', // Clean White
+    obstacle: '#ffffff', // Crisp White Obstacles
     gridLines: 'rgba(255, 255, 255, 0.05)',
     markerFill: '#ec4899', // Hot Pink
     markerOutline: '#ffffff',
@@ -87,10 +87,10 @@ const THEMES: Record<MapTheme, ThemeStyle> = {
     roverOutline: '#ffffff',
   },
   classic: {
-    bg: '#ffffff',
-    unknown: '#f1f5f9',
-    free: '#f8fafc',
-    obstacle: '#0f172a', // Dark charcoal on white
+    bg: '#cbd5e1', // Slate background for margins
+    unknown: '#94a3b8', // Slate-400 neutral grey for unknown cells (Standard ROS representation)
+    free: '#ffffff', // Highly visible white path space
+    obstacle: '#0f172a', // Dark charcoal/black walls
     gridLines: 'rgba(15, 23, 42, 0.05)',
     markerFill: '#8b5cf6', // Violet
     markerOutline: '#000000',
@@ -147,7 +147,7 @@ export function LidarCanvasMap({
   const [showLabels, setShowLabels] = useState<boolean>(true);
 
   // Animation ticks
-  const [pulseOffset, setPulseOffset] = useState<number>(0);
+  const pulseOffsetRef = useRef<number>(0);
 
   // Coordinate transformations
   // Convert metric coordinates (mx, my) to map relative pixels (px, py)
@@ -301,19 +301,8 @@ export function LidarCanvasMap({
     offscreenCanvasRef.current = offscreen;
   }, [gridData, width, height, theme]);
 
-  // Setup route animation frame loop
-  useEffect(() => {
-    let animFrame: number;
-    const tick = () => {
-      setPulseOffset((prev) => (prev + 0.008) % 1.0);
-      animFrame = requestAnimationFrame(tick);
-    };
-    animFrame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animFrame);
-  }, []);
-
-  // Main Canvas Rendering Loop
-  useEffect(() => {
+  // Main Canvas Rendering Logic helper
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -321,6 +310,7 @@ export function LidarCanvasMap({
     if (!ctx) return;
 
     const activeTheme = THEMES[theme];
+    const pulseOffset = pulseOffsetRef.current;
 
     // Clear Canvas
     ctx.fillStyle = activeTheme.bg;
@@ -636,9 +626,26 @@ export function LidarCanvasMap({
     gridData, width, height, resolution, originX, originY,
     markers, routes, isRouteMode, routePoints, selectedMarkerId,
     selectedRouteId, isMeasureMode, measureStart, measureEnd, measureHover,
-    theme, showGrid, showLabels, zoom, pan, pulseOffset, liveRoverPos,
+    theme, showGrid, showLabels, zoom, pan, liveRoverPos,
     screenToMetric, metricToScreen,
   ]);
+
+  // Main Canvas Rendering Loop (for state/prop changes)
+  useEffect(() => {
+    draw();
+  }, [draw]);
+
+  // Setup route animation frame loop (React-decoupled redraws)
+  useEffect(() => {
+    let animFrame: number;
+    const tick = () => {
+      pulseOffsetRef.current = (pulseOffsetRef.current + 0.008) % 1.0;
+      draw();
+      animFrame = requestAnimationFrame(tick);
+    };
+    animFrame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animFrame);
+  }, [draw]);
 
   // Interactive mouse handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {

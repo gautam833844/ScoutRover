@@ -4,17 +4,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Map as MapIcon, Layers, Search, Navigation, MapPin,
   Plus, Minus, Crosshair, Route, Trash2, Ruler, X, Save, FolderPlus,
-  QrCode, FileDown, FileCode, FileText, Package, Wifi, WifiOff, UploadCloud, Activity, Compass
+  QrCode, FileDown, FileCode, FileText, Package, Wifi, WifiOff, UploadCloud, Activity, Compass, Image as ImageIcon
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { Button, Breadcrumb, SearchBar, Badge, Modal, Input } from '@/components/ui';
 import { useToast } from '@/contexts/ToastContext';
+import { useROS } from '@/contexts/ROSContext';
 import { ROS_CONFIG } from '@/constants';
 import { MapMarker, MapRoute } from '@/types';
 import { formatDistance } from '@/utils/helpers';
 import mapService, { SavedMap } from '@/services/mapService';
 import apiClient from '@/services/apiClient';
 import LidarCanvasMap from '@/components/maps/LidarCanvasMap';
+import { planPath } from '@/utils/pathfinding';
 
 // ─── Cartesian Distance Calculator for 2D Grid Maps ───────────────────────
 function cartesianDistance(p1: { lat: number; lng: number }, p2: { lat: number; lng: number }) {
@@ -76,6 +78,43 @@ function buildPGM(map: SavedMap): Blob {
   return new Blob([header + body.join('\n')], { type: 'text/plain' });
 }
 
+function buildPNG(map: SavedMap): Promise<Blob> {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    const w = map.width || 20;
+    const h = map.height || 20;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    const imgData = ctx.createImageData(w, h);
+    const rawData = map.gridData || Array(w * h).fill(0);
+
+    for (let i = 0; i < rawData.length; i++) {
+      const v = rawData[i];
+      let r = 205, g = 205, b = 205; // unknown gray
+      if (v === 0) {
+        r = 255; g = 255; b = 255; // free white
+      } else if (v > 0) {
+        r = 0; g = 0; b = 0; // occupied black
+      }
+
+      const col = i % w;
+      const row = Math.floor(i / w);
+      const flippedRow = h - 1 - row;
+      const idx = (flippedRow * w + col) * 4;
+
+      imgData.data[idx] = r;
+      imgData.data[idx + 1] = g;
+      imgData.data[idx + 2] = b;
+      imgData.data[idx + 3] = 255;
+    }
+    ctx.putImageData(imgData, 0, 0);
+    canvas.toBlob((blob) => {
+      resolve(blob || new Blob());
+    }, 'image/png');
+  });
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -128,21 +167,18 @@ function MapComponent() {
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [sidebarSort, setSidebarSort] = useState<'name' | 'newest'>('newest');
 
-  // Live ROS teleoperation states
-  const [isLiveMode, setIsLiveMode] = useState(false);
-  const [rosStatus, setRosStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
-  const [lastMapUpdate, setLastMapUpdate] = useState<string | null>(null);
-  const [liveGrid, setLiveGrid] = useState<{
-    width: number;
-    height: number;
-    resolution: number;
-    originX: number;
-    originY: number;
-    gridData: number[];
-  } | null>(null);
+  // Live ROS teleoperation states from global ROSContext
+  const {
+    rosStatus,
+    connectToROS,
+    disconnectFromROS,
+    liveGrid,
+    lastMapUpdate,
+    isLiveMode,
+    setIsLiveMode,
+  } = useROS();
 
-  const rosRef = useRef<any>(null);
-  const mapListenerRef = useRef<any>(null);
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
 
   // Mapping configurations loaded from settings
   const [mappingConfig, setMappingConfig] = useState({ algoName: 'SLAM Toolbox', mapTopic: '/map' });
@@ -156,6 +192,16 @@ function MapComponent() {
       });
     } catch { /* defaults */ }
   }, []);
+
+  // Determine grid data source: live stream or saved static map
+  const gridSource = isLiveMode && liveGrid ? liveGrid : {
+    gridData: selectedMap?.gridData || [],
+    width: selectedMap?.width || 0,
+    height: selectedMap?.height || 0,
+    resolution: selectedMap?.resolution || 0.05,
+    originX: selectedMap?.originX || 0,
+    originY: selectedMap?.originY || 0,
+  };
 
   // Generate QR inside modal whenever the content changes or modal opens
   useEffect(() => {
@@ -183,41 +229,55 @@ function MapComponent() {
   // 1. Fetch maps on mount
   const loadMaps = useCallback(async (selectId?: string) => {
     try {
-      const list = await mapService.listMaps();
+      if (activeAbortControllerRef.current) {
+        activeAbortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      activeAbortControllerRef.current = controller;
+
+      const list = await mapService.listMaps({ signal: controller.signal });
       setMaps(list);
       if (list.length > 0) {
-        if (selectId) {
-          const matched = list.find(m => m.id === selectId);
+        const idToLoad = selectId || list[0].id;
+        try {
+          const fullMap = await mapService.getMapById(idToLoad, { signal: controller.signal });
+          setSelectedMap(fullMap);
+        } catch (err: any) {
+          if (err.name === 'AbortError') return;
+          const matched = list.find(m => m.id === idToLoad);
           setSelectedMap(matched || list[0]);
-        } else {
-          setSelectedMap(list[0]);
         }
       } else {
         // provision default laboratory map if none exist (200x200 room sizing)
-        const defaultGrid = Array(200 * 200).fill(-1); // fill unknown
-        // create small rectangular room outline in coordinates
-        for (let r = 20; r < 180; r++) {
-          for (let c = 20; c < 180; c++) {
-            if (r === 20 || r === 179 || c === 20 || c === 179) {
-              defaultGrid[r * 200 + c] = 100; // Obstacle wall
-            } else {
-              defaultGrid[r * 200 + c] = 0; // Empty path
+        try {
+          const defaultGrid = Array(200 * 200).fill(-1); // fill unknown
+          // create small rectangular room outline in coordinates
+          for (let r = 20; r < 180; r++) {
+            for (let c = 20; c < 180; c++) {
+              if (r === 20 || r === 179 || c === 20 || c === 179) {
+                defaultGrid[r * 200 + c] = 100; // Obstacle wall
+              } else {
+                defaultGrid[r * 200 + c] = 0; // Empty path
+              }
             }
           }
+          const map = await mapService.saveMap({
+            name: 'Research Lab - Occupancy Grid',
+            width: 200,
+            height: 200,
+            resolution: 0.05,
+            originX: -5.0,
+            originY: -5.0,
+            gridData: defaultGrid,
+          });
+          setMaps([map]);
+          setSelectedMap(map);
+        } catch (provisionErr: any) {
+          console.warn('[Maps] Failed to auto-provision default map:', provisionErr);
         }
-        const map = await mapService.saveMap({
-          name: 'Research Lab - Occupancy Grid',
-          width: 200,
-          height: 200,
-          resolution: 0.05,
-          originX: -5.0,
-          originY: -5.0,
-          gridData: defaultGrid,
-        });
-        setMaps([map]);
-        setSelectedMap(map);
       }
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       showError('Error', 'Failed to retrieve maps list from server');
     }
   }, [showError]);
@@ -289,76 +349,7 @@ function MapComponent() {
     loadMarkersAndRoutes();
   }, [loadMarkersAndRoutes]);
 
-  // Connect to live ROS mapping scan
-  const connectToROS = useCallback(async () => {
-    setRosStatus('connecting');
-    try {
-      const { Ros, Topic } = await import('roslib');
-      const ros = new Ros({ url: ROS_CONFIG.url });
-      rosRef.current = ros;
-
-      ros.on('connection', () => {
-        setRosStatus('connected');
-        info('ROS Connected', 'ROS bridge successfully hooked');
-
-        const mapTopic = mappingConfig.mapTopic || ROS_CONFIG.mapTopic;
-        mapListenerRef.current = new Topic({
-          ros,
-          name: mapTopic,
-          messageType: 'nav_msgs/OccupancyGrid',
-          throttle_rate: 2000,
-          queue_length: 1,
-        });
-
-        mapListenerRef.current.subscribe((message: any) => {
-          setLiveGrid({
-            width: message.info.width,
-            height: message.info.height,
-            resolution: message.info.resolution,
-            originX: message.info.origin?.position?.x || 0,
-            originY: message.info.origin?.position?.y || 0,
-            gridData: Array.from(message.data),
-          });
-          setLastMapUpdate(new Date().toISOString());
-        });
-      });
-
-      ros.on('error', (err: any) => {
-        setRosStatus('disconnected');
-        showError('ROS Error', `Connection failed at ${ROS_CONFIG.url}`);
-        console.warn('[ROS] connection error:', err);
-      });
-
-      ros.on('close', () => {
-        setRosStatus('disconnected');
-      });
-    } catch (err) {
-      setRosStatus('disconnected');
-      showError('Import Error', 'Failed to connect to ROS bridge');
-      console.warn('[ROS] import/connect error:', err);
-    }
-  }, [info, showError, mappingConfig]);
-
-  const disconnectFromROS = useCallback(() => {
-    if (mapListenerRef.current) {
-      mapListenerRef.current.unsubscribe();
-      mapListenerRef.current = null;
-    }
-    if (rosRef.current) {
-      try { rosRef.current.close(); } catch { }
-      rosRef.current = null;
-    }
-    setRosStatus('disconnected');
-    setLiveGrid(null);
-    setLastMapUpdate(null);
-  }, []);
-
-  // Cleanup ROS connection on unmount
-  useEffect(() => {
-    return () => {
-      disconnectFromROS();
-    };
-  }, [disconnectFromROS]);
+  // ROS connection lifecycle is fully managed by global ROSContext wrapper
 
   // Click on Lidar Canvas coordinates handler
   const handleMapClickAddMarker = async (x: number, y: number) => {
@@ -396,17 +387,57 @@ function MapComponent() {
   // Add route planner coordinate point clicked
   const addRoutePoint = useCallback((point: { lat: number; lng: number }) => {
     setRoutePoints(prev => {
-      const newPoints = [...prev, point];
-
-      // Calculate Cartesian distance total
-      let dist = 0;
-      for (let i = 1; i < newPoints.length; i++) {
-        dist += cartesianDistance(newPoints[i - 1], newPoints[i]);
+      if (prev.length === 0) {
+        return [point];
       }
-      setRouteDistance(dist);
+
+      const lastPoint = prev[prev.length - 1];
+
+      // Retrieve current map/grid parameters
+      const grid = gridSource.gridData;
+      const w = gridSource.width;
+      const h = gridSource.height;
+      const res = gridSource.resolution;
+      const ox = gridSource.originX;
+      const oy = gridSource.originY;
+
+      if (!grid || grid.length === 0) {
+        // Fallback to straight Euclidean path if map data is unavailable
+        const newPoints = [...prev, point];
+        let dist = 0;
+        for (let i = 1; i < newPoints.length; i++) {
+          dist += cartesianDistance(newPoints[i - 1], newPoints[i]);
+        }
+        setRouteDistance(dist);
+        return newPoints;
+      }
+
+      // Compute A* planned path between the last point and new clicked point
+      const pathResult = planPath(
+        grid,
+        w,
+        h,
+        res,
+        ox,
+        oy,
+        lastPoint,
+        point,
+        0.15 // 15cm safety inflation clearance
+      );
+
+      // Append intermediate A* coordinates (skipping duplicates)
+      const newPoints = [...prev, ...pathResult.points.slice(1)];
+
+      // Recalculate total routing length
+      let totalDist = 0;
+      for (let i = 1; i < newPoints.length; i++) {
+        totalDist += cartesianDistance(newPoints[i - 1], newPoints[i]);
+      }
+      setRouteDistance(totalDist);
+
       return newPoints;
     });
-  }, []);
+  }, [gridSource]);
 
   const handleSaveRoute = async () => {
     if (routePoints.length < 2 || !selectedMap) return;
@@ -511,14 +542,6 @@ function MapComponent() {
   };
 
   // Render grid helper selection
-  const gridSource = isLiveMode && liveGrid ? liveGrid : {
-    gridData: selectedMap?.gridData || [],
-    width: selectedMap?.width || 0,
-    height: selectedMap?.height || 0,
-    resolution: selectedMap?.resolution || 0.05,
-    originX: selectedMap?.originX || 0,
-    originY: selectedMap?.originY || 0,
-  };
 
   const filteredAndSortedMaps = maps
     .filter(m => m.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
@@ -580,10 +603,22 @@ function MapComponent() {
             {filteredAndSortedMaps.map(m => (
               <div
                 key={m.id}
-                onClick={() => {
-                  setSelectedMap(m);
+                onClick={async () => {
                   setIsLiveMode(false);
                   disconnectFromROS();
+                  try {
+                    if (activeAbortControllerRef.current) {
+                      activeAbortControllerRef.current.abort();
+                    }
+                    const controller = new AbortController();
+                    activeAbortControllerRef.current = controller;
+
+                    const fullMap = await mapService.getMapById(m.id, { signal: controller.signal });
+                    setSelectedMap(fullMap);
+                  } catch (err: any) {
+                    if (err.name === 'AbortError') return;
+                    showError('Error', 'Failed to retrieve map grid details');
+                  }
                 }}
                 className={`flex items-center justify-between text-xs p-2 rounded-lg cursor-pointer transition-all ${
                   selectedMap?.id === m.id && !isLiveMode
@@ -924,12 +959,46 @@ function MapComponent() {
               )}
             </div>
 
-            {isRouteMode && routePoints.length > 0 && (
-              <span className="text-red-500 font-semibold flex items-center gap-1.5 animate-pulse">
-                <Compass className="w-3.5 h-3.5" />
-                Planning Route: {routePoints.length} points ({routeDistance.toFixed(2)}m)
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {isRouteMode && routePoints.length > 0 && (
+                <span className="text-red-500 font-semibold flex items-center gap-1.5 animate-pulse">
+                  <Compass className="w-3.5 h-3.5" />
+                  Planning Route: {routePoints.length} points ({routeDistance.toFixed(2)}m)
+                </span>
+              )}
+              
+              {(selectedMap || (isLiveMode && liveGrid)) && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<FileDown className="w-3.5 h-3.5" />}
+                  onClick={() => {
+                    if (isLiveMode) {
+                      if (liveGrid) {
+                        setExportModalMap({
+                          id: 'live-scan',
+                          name: `Live_Scan_${new Date().toLocaleTimeString().replace(/:/g, '-')}`,
+                          width: liveGrid.width,
+                          height: liveGrid.height,
+                          resolution: liveGrid.resolution,
+                          originX: liveGrid.originX,
+                          originY: liveGrid.originY,
+                          gridData: Array.from(liveGrid.gridData),
+                          createdAt: new Date().toISOString(),
+                          updatedAt: new Date().toISOString(),
+                        } as any);
+                      } else {
+                        showError('No map data', 'Awaiting live LiDAR occupancy grid scan data.');
+                      }
+                    } else if (selectedMap) {
+                      setExportModalMap(selectedMap);
+                    }
+                  }}
+                >
+                  Export Map
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -1010,7 +1079,7 @@ function MapComponent() {
                   <Package className="w-5 h-5 text-purple-500" />
                   <div>
                     <p className="text-sm font-semibold text-surface-900 dark:text-white font-sans">ROS PGM + YAML</p>
-                    <p className="text-xs text-surface-500">Direct import into standard Nav2 map_server</p>
+                    <p className="text-xs text-surface-500">Direct import into standard Nav2 map_server (PGM)</p>
                   </div>
                 </div>
                 <Button size="sm" variant="secondary" icon={<FileDown className="w-4 h-4" />}
@@ -1021,6 +1090,29 @@ function MapComponent() {
                       downloadBlob(new Blob([buildRosYAML(exportModalMap, `${slug}.pgm`)], { type: 'text/yaml' }), `${slug}.yaml`);
                     }, 200);
                     success('Exported', 'PGM + YAML files downloaded');
+                  }}>
+                  Download
+                </Button>
+              </div>
+
+              {/* ROS PNG + YAML download */}
+              <div className="p-3 rounded-xl border border-surface-200 dark:border-white/10 flex items-center justify-between gap-4 hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
+                <div className="flex items-center gap-3">
+                  <ImageIcon className="w-5 h-5 text-emerald-500" />
+                  <div>
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white font-sans">ROS PNG + YAML</p>
+                    <p className="text-xs text-surface-500">Modern compressed image format with YAML metadata</p>
+                  </div>
+                </div>
+                <Button size="sm" variant="secondary" icon={<FileDown className="w-4 h-4" />}
+                  onClick={async () => {
+                    const slug = exportModalMap.name.replace(/\s+/g, '_');
+                    const pngBlob = await buildPNG(exportModalMap);
+                    downloadBlob(pngBlob, `${slug}.png`);
+                    setTimeout(() => {
+                      downloadBlob(new Blob([buildRosYAML(exportModalMap, `${slug}.png`)], { type: 'text/yaml' }), `${slug}.yaml`);
+                    }, 200);
+                    success('Exported', 'PNG + YAML files downloaded');
                   }}>
                   Download
                 </Button>

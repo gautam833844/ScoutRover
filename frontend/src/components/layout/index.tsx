@@ -298,8 +298,16 @@ export function Footer() {
 
 // ========== DASHBOARD LAYOUT ==========
 export function DashboardLayout({ children }: { children: ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [isLoading, isAuthenticated, router]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -313,6 +321,18 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-surface-50 dark:bg-dark-bg flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-brand-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-dark-bg">
