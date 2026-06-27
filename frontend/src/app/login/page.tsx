@@ -28,6 +28,15 @@ export default function LoginPage() {
     return Object.keys(e).length === 0;
   };
 
+  const handleBlur = (field: 'email' | 'password') => {
+    if (field === 'email') {
+      const emailResult = validateEmail(form.email);
+      setErrors(prev => ({ ...prev, email: emailResult.valid ? '' : emailResult.error! }));
+    } else if (field === 'password') {
+      setErrors(prev => ({ ...prev, password: form.password ? '' : 'Password is required' }));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
@@ -45,7 +54,7 @@ export default function LoginPage() {
   };
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Sign in to your ScoutRover account">
+    <AuthLayout title="Welcome back" subtitle="Sign in to your Atlas account">
       <form onSubmit={handleSubmit} className="space-y-5">
         <Input
           label="Email address"
@@ -53,9 +62,11 @@ export default function LoginPage() {
           placeholder="you@example.com"
           value={form.email}
           onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+          onBlur={() => handleBlur('email')}
           error={errors.email}
           leftIcon={<Mail className="w-4 h-4" />}
           autoComplete="email"
+          autoFocus
         />
 
         <Input
@@ -64,6 +75,7 @@ export default function LoginPage() {
           placeholder="••••••••"
           value={form.password}
           onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+          onBlur={() => handleBlur('password')}
           error={errors.password}
           leftIcon={<Lock className="w-4 h-4" />}
           autoComplete="current-password"
@@ -83,6 +95,24 @@ export default function LoginPage() {
           Sign in
         </Button>
       </form>
+
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-surface-200 dark:border-white/[0.08]" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-white dark:bg-dark-card px-2 text-surface-500">Or continue with</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Button variant="outline" type="button" className="w-full" onClick={() => success('OAuth Login', 'Redirecting to Google OAuth... (Demo)')}>
+          Google
+        </Button>
+        <Button variant="outline" type="button" className="w-full" onClick={() => success('OAuth Login', 'Redirecting to GitHub OAuth... (Demo)')}>
+          GitHub
+        </Button>
+      </div>
 
       <div className="mt-8 text-center">
         <p className="text-sm text-surface-500 dark:text-surface-400">

@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import {
   Wifi, WifiOff, Map, QrCode, Activity, Clock, ChevronUp, ChevronDown,
   ChevronLeft, ChevronRight, Square, Download, Save, Compass, Gauge,
-  MapPin, Zap, BarChart3, UploadCloud
+  MapPin, Zap, BarChart3, UploadCloud, User as UserIcon
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
-import { Button, Badge, Breadcrumb } from '@/components/ui';
+import { Button, Badge, Breadcrumb, Modal, Input } from '@/components/ui';
 import { StatCard, LinkCard } from '@/components/cards';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -15,6 +16,15 @@ import { ROUTES, ROS_CONFIG } from '@/constants';
 import { timeAgo } from '@/utils/helpers';
 import mapService from '@/services/mapService';
 import apiClient from '@/services/apiClient';
+
+// Activity icon helper
+const getActivityIcon = (action: string) => {
+  if (action.startsWith('USER'))    return <UserIcon className="w-4 h-4" />;
+  if (action.startsWith('MAP'))     return <Map className="w-4 h-4" />;
+  if (action.startsWith('MARKER'))  return <MapPin className="w-4 h-4" />;
+  if (action.startsWith('ROUTE'))   return <Compass className="w-4 h-4" />;
+  return <Activity className="w-4 h-4" />;
+};
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -24,6 +34,9 @@ export default function DashboardPage() {
   const [currentDirection, setCurrentDirection] = useState<string | null>(null);
   const [savingMap, setSavingMap] = useState(false);
   const [exportingToJetson, setExportingToJetson] = useState(false);
+  
+  const [activities, setActivities] = useState<any[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
   
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rosRef = useRef<any>(null);
@@ -43,6 +56,23 @@ export default function DashboardPage() {
         mapTopic: cfg.mapTopic || '/map',
       });
     } catch { /* use defaults */ }
+  }, []);
+
+  // Fetch recent audit activities
+  useEffect(() => {
+    if (!user) return;
+    setActivitiesLoading(true);
+    apiClient.get<any>('/audit-logs?limit=5')
+      .then(res => setActivities(res.docs || []))
+      .catch(() => {})
+      .finally(() => setActivitiesLoading(false));
+  }, [user]);
+
+  // First-time onboarding trigger
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !localStorage.getItem('scoutrover_onboarded')) {
+      setShowOnboarding(true);
+    }
   }, []);
 
   // Draw LiDAR Map from ROS occupancy grids
@@ -161,6 +191,10 @@ export default function DashboardPage() {
   }, []);
 
   const startCmd = useCallback((dir: string) => {
+    // Touch vibration haptics
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(50);
+    }
     sendCmd(dir);
     setCurrentDirection(dir);
     if (cmdIntervalRef.current) clearInterval(cmdIntervalRef.current);
@@ -202,68 +236,77 @@ export default function DashboardPage() {
     success('Downloaded', 'Map image download triggered.');
   };
 
-  const saveMapToDatabase = async () => {
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveModalMode, setSaveModalMode] = useState<'save' | 'export'>('save');
+  const [modalMapName, setModalMapName] = useState('');
+
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(1);
+
+  const openSaveModal = (mode: 'save' | 'export') => {
     const gridMsg = lastMapMessageRef.current;
     if (!gridMsg || !gridMsg.info || !gridMsg.data) {
       showError('No map data', 'Awaiting live LiDAR occupancy grid messages from ROS bridge.');
       return;
     }
-
-    const name = prompt('Name this map scan:', `LiDAR Scan - ${new Date().toLocaleTimeString()}`);
-    if (!name) return;
-
-    setSavingMap(true);
-    try {
-      await mapService.saveMap({
-        name,
-        width: gridMsg.info.width,
-        height: gridMsg.info.height,
-        resolution: gridMsg.info.resolution,
-        originX: gridMsg.info.origin?.position?.x || 0,
-        originY: gridMsg.info.origin?.position?.y || 0,
-        gridData: Array.from(gridMsg.data),
-      });
-      success('Map saved', `LiDAR scan map '${name}' successfully stored in MongoDB.`);
-    } catch (err: any) {
-      showError('Failed to save', err.message || 'Could not save map scan to server');
-    } finally {
-      setSavingMap(false);
-    }
+    const defaultName = mode === 'save' 
+      ? `LiDAR Scan - ${new Date().toLocaleTimeString()}`
+      : `LiDAR Export - ${new Date().toLocaleTimeString()}`;
+    setModalMapName(defaultName);
+    setSaveModalMode(mode);
+    setShowSaveModal(true);
   };
 
-  const exportMapToJetsonDirect = async () => {
+  const handleModalConfirm = async () => {
+    if (!modalMapName.trim()) return;
+    setShowSaveModal(false);
+    
     const gridMsg = lastMapMessageRef.current;
     if (!gridMsg || !gridMsg.info || !gridMsg.data) {
       showError('No map data', 'Awaiting live LiDAR occupancy grid messages from ROS bridge.');
       return;
     }
 
-    const name = prompt('Name this map for Jetson export:', `LiDAR Export - ${new Date().toLocaleTimeString()}`);
-    if (!name) return;
+    if (saveModalMode === 'save') {
+      setSavingMap(true);
+      try {
+        await mapService.saveMap({
+          name: modalMapName.trim(),
+          width: gridMsg.info.width,
+          height: gridMsg.info.height,
+          resolution: gridMsg.info.resolution,
+          originX: gridMsg.info.origin?.position?.x || 0,
+          originY: gridMsg.info.origin?.position?.y || 0,
+          gridData: Array.from(gridMsg.data),
+        });
+        success('Map saved', `LiDAR scan map '${modalMapName}' successfully stored in MongoDB.`);
+      } catch (err: any) {
+        showError('Failed to save', err.message || 'Could not save map scan to server');
+      } finally {
+        setSavingMap(false);
+      }
+    } else {
+      setExportingToJetson(true);
+      try {
+        // 1. Save map to DB first
+        const savedMap = await mapService.saveMap({
+          name: modalMapName.trim(),
+          width: gridMsg.info.width,
+          height: gridMsg.info.height,
+          resolution: gridMsg.info.resolution,
+          originX: gridMsg.info.origin?.position?.x || 0,
+          originY: gridMsg.info.origin?.position?.y || 0,
+          gridData: Array.from(gridMsg.data),
+        });
 
-    setExportingToJetson(true);
-    try {
-      // 1. Save map to DB first
-      const savedMap = await mapService.saveMap({
-        name,
-        width: gridMsg.info.width,
-        height: gridMsg.info.height,
-        resolution: gridMsg.info.resolution,
-        originX: gridMsg.info.origin?.position?.x || 0,
-        originY: gridMsg.info.origin?.position?.y || 0,
-        gridData: Array.from(gridMsg.data),
-      });
-
-      // 2. Call backend export to Jetson
-      await apiClient.post('/jetson/export', {
-        mapId: savedMap.id,
-      });
-
-      success('Export Successful', `Saved map "${name}" to DB and exported to Jetson filesystem.`);
-    } catch (err: any) {
-      showError('Export Failed', err.message || 'Could not export live scan to Jetson');
-    } finally {
-      setExportingToJetson(false);
+        // 2. Trigger push on backend
+        await apiClient.post('/jetson/export', { mapId: savedMap.id });
+        success('Export Successful', `Saved map "${modalMapName}" to DB and exported to Jetson filesystem.`);
+      } catch (err: any) {
+        showError('Export Failed', err.message || 'Could not export live scan to Jetson');
+      } finally {
+        setExportingToJetson(false);
+      }
     }
   };
 
@@ -274,7 +317,7 @@ export default function DashboardPage() {
       onMouseLeave={stopRover}
       onTouchStart={(e) => { e.preventDefault(); startCmd(dir); }}
       onTouchEnd={(e) => { e.preventDefault(); stopRover(); }}
-      className={`w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl flex items-center justify-center transition-all duration-150 border-2 select-none touch-none ${
+      className={`w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl flex items-center justify-center transition-all duration-150 border-2 select-none touch-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none ${
         currentDirection === dir
           ? 'bg-brand-600 text-white border-brand-600 scale-95 shadow-glow'
           : 'bg-white dark:bg-dark-elevated text-surface-700 dark:text-surface-300 border-surface-200 dark:border-white/10 hover:border-brand-400 hover:text-brand-600 dark:hover:text-brand-400 active:scale-95'
@@ -358,7 +401,7 @@ export default function DashboardPage() {
                   <Button
                     variant="primary"
                     size="sm"
-                    onClick={saveMapToDatabase}
+                    onClick={() => openSaveModal('save')}
                     loading={savingMap}
                     icon={<Save className="w-4 h-4" />}
                   >
@@ -367,7 +410,7 @@ export default function DashboardPage() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={exportMapToJetsonDirect}
+                    onClick={() => openSaveModal('export')}
                     loading={exportingToJetson}
                     icon={<UploadCloud className="w-4 h-4" />}
                   >
@@ -419,27 +462,229 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Quick Links */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <LinkCard
-          icon={<Map className="w-5 h-5" />}
-          title="Maps"
-          description="Explore standard, satellite, and LiDAR maps"
-          href={ROUTES.MAPS}
-        />
-        <LinkCard
-          icon={<QrCode className="w-5 h-5" />}
-          title="QR Code"
-          description="Generate and scan QR codes"
-          href={ROUTES.QR_CODE}
-        />
-        <LinkCard
-          icon={<Activity className="w-5 h-5" />}
-          title="Settings"
-          description="Configure rover and app settings"
-          href={ROUTES.SETTINGS}
-        />
+      {/* Bottom section: Recent Activity & Quick Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Activity (2/3 width) */}
+        <div className="lg:col-span-2 card p-5">
+          <div className="flex items-center justify-between border-b border-surface-200 dark:border-white/[0.08] pb-3 mb-4">
+            <h3 className="font-semibold text-surface-900 dark:text-white flex items-center gap-2">
+              <Clock className="w-5 h-5 text-brand-500" />
+              Recent System Activity
+            </h3>
+            <Link href="/profile?tab=activity" className="text-xs text-brand-600 dark:text-brand-400 hover:underline font-medium">
+              View All Logs
+            </Link>
+          </div>
+
+          <div className="space-y-3">
+            {activitiesLoading ? (
+              <div className="py-6 text-center text-sm text-surface-400">Loading activities…</div>
+            ) : activities.length === 0 ? (
+              <div className="py-6 text-center text-sm text-surface-400">No recent activity logs.</div>
+            ) : (
+              activities.slice(0, 4).map((item, i) => (
+                <div key={item._id || i} className="flex items-start gap-3 p-3 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-surface-200/50 dark:border-white/[0.03] hover:bg-surface-100 dark:hover:bg-white/[0.04] transition-all">
+                  <div className="p-2 rounded-lg bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 flex-shrink-0">
+                    {getActivityIcon(item.action)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm text-surface-800 dark:text-surface-200 font-semibold truncate">{item.action.replace(/_/g, ' ')}</p>
+                      <span className="text-[10px] text-surface-400 flex-shrink-0 font-medium">{timeAgo(item.timestamp)}</span>
+                    </div>
+                    <p className="text-xs text-surface-500 mt-0.5 truncate">{item.description}</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Quick Actions / Links (1/3 width) */}
+        <div className="lg:col-span-1 card p-5 flex flex-col justify-between">
+          <div>
+            <div className="border-b border-surface-200 dark:border-white/[0.08] pb-3 mb-4">
+              <h3 className="font-semibold text-surface-900 dark:text-white flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-500" />
+                Quick Actions
+              </h3>
+            </div>
+            <div className="space-y-3">
+              <Link href={ROUTES.MAPS} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-surface-200/50 dark:border-white/[0.03] hover:border-brand-500 dark:hover:border-brand-500/50 transition-all group">
+                <div className="p-2 rounded-lg bg-cyan-50 dark:bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 group-hover:bg-cyan-500 group-hover:text-white transition-all">
+                  <Map className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-surface-800 dark:text-surface-200">Maps Console</p>
+                  <p className="text-xs text-surface-500">Configure spatial grid maps</p>
+                </div>
+              </Link>
+              <Link href="/profile?tab=qr" className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-surface-200/50 dark:border-white/[0.03] hover:border-brand-500 dark:hover:border-brand-500/50 transition-all group">
+                <div className="p-2 rounded-lg bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 group-hover:bg-purple-500 group-hover:text-white transition-all">
+                  <QrCode className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-surface-800 dark:text-surface-200">QR Tools</p>
+                  <p className="text-xs text-surface-500">Generate and scan data codes</p>
+                </div>
+              </Link>
+              <Link href={ROUTES.SETTINGS} className="flex items-center gap-3 p-3 rounded-xl bg-surface-50 dark:bg-white/[0.02] border border-surface-200/50 dark:border-white/[0.03] hover:border-brand-500 dark:hover:border-brand-500/50 transition-all group">
+                <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-500 group-hover:text-white transition-all">
+                  <Activity className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-surface-800 dark:text-surface-200">System Settings</p>
+                  <p className="text-xs text-surface-500">Adjust connection & SLAM settings</p>
+                </div>
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
+      {showSaveModal && (
+        <Modal
+          open={showSaveModal}
+          onClose={() => setShowSaveModal(false)}
+          title={saveModalMode === 'save' ? 'Save LiDAR Map' : 'Export Map to Jetson'}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowSaveModal(false)}>Cancel</Button>
+              <Button variant="primary" onClick={handleModalConfirm} loading={savingMap || exportingToJetson}>
+                {saveModalMode === 'save' ? 'Save Map' : 'Export Map'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-surface-500">
+              {saveModalMode === 'save'
+                ? 'Save this LiDAR occupancy grid map to Atlas database.'
+                : 'Save map to database and export directly to Jetson developer kit filesystem.'}
+            </p>
+            <Input
+              label="Map Name"
+              value={modalMapName}
+              onChange={e => setModalMapName(e.target.value)}
+              placeholder="e.g. Laboratory Room Grid"
+              autoFocus
+            />
+          </div>
+        </Modal>
+      )}
+
+      {showOnboarding && (
+        <Modal
+          open={showOnboarding}
+          onClose={() => {
+            localStorage.setItem('scoutrover_onboarded', 'true');
+            setShowOnboarding(false);
+          }}
+          title={`Onboarding Guide — Step ${onboardingStep} of 4`}
+          footer={
+            <div className="flex justify-between w-full items-center">
+              <button
+                onClick={() => {
+                  localStorage.setItem('scoutrover_onboarded', 'true');
+                  setShowOnboarding(false);
+                }}
+                className="text-xs text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 font-medium"
+              >
+                Skip Guide
+              </button>
+              <div className="flex gap-2">
+                {onboardingStep > 1 && (
+                  <Button variant="secondary" size="sm" onClick={() => setOnboardingStep(prev => prev - 1)}>
+                    Back
+                  </Button>
+                )}
+                {onboardingStep < 4 ? (
+                  <Button variant="primary" size="sm" onClick={() => setOnboardingStep(prev => prev + 1)}>
+                    Next Step
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      localStorage.setItem('scoutrover_onboarded', 'true');
+                      setShowOnboarding(false);
+                    }}
+                  >
+                    Get Started
+                  </Button>
+                )}
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-4 py-2">
+            {onboardingStep === 1 && (
+              <div className="space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center">
+                  <Map className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-surface-900 dark:text-white">Welcome to Atlas!</h4>
+                <p className="text-xs text-surface-500 dark:text-surface-400 leading-relaxed">
+                  Atlas is an autonomous spatial mapping dashboard. It allows you to build 2D grid maps of physical spaces, plan telemetry routes, and monitor live sensors from any device.
+                </p>
+              </div>
+            )}
+
+            {onboardingStep === 2 && (
+              <div className="space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+                  <Wifi className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-surface-900 dark:text-white">Connecting your Rover</h4>
+                <p className="text-xs text-surface-500 dark:text-surface-400 leading-relaxed">
+                  Go to <strong>Settings</strong> page to enter the local IP address and port of your Jetson developer kit bridge connection. Once saved, click the green <strong>Connect Rover</strong> button in the dashboard top navigation bar to stream live data.
+                </p>
+              </div>
+            )}
+
+            {onboardingStep === 3 && (
+              <div className="space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                  <Zap className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-surface-900 dark:text-white">Occupancy Spatial Grids</h4>
+                <p className="text-xs text-surface-500 dark:text-surface-400 leading-relaxed">
+                  LiDAR occupancy grid maps represent mapped spaces visually:
+                </p>
+                <ul className="text-xs text-surface-500 dark:text-surface-400 space-y-1.5 list-disc pl-4 leading-relaxed">
+                  <li><strong className="text-surface-700 dark:text-surface-300">Grey areas</strong> represent unknown unexplored sectors.</li>
+                  <li><strong className="text-surface-700 dark:text-surface-300">White paths</strong> represent safe open lanes.</li>
+                  <li><strong className="text-surface-700 dark:text-surface-300">Black lines</strong> show hard obstacle boundaries (walls, tables).</li>
+                </ul>
+              </div>
+            )}
+
+            {onboardingStep === 4 && (
+              <div className="space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Compass className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-surface-900 dark:text-white">Waypoints & Route Planning</h4>
+                <p className="text-xs text-surface-500 dark:text-surface-400 leading-relaxed">
+                  Navigate to the <strong>Maps Console</strong> to perform annotations. Double-click coordinates to name and drop Waypoints, or switch to Route Planner mode to outline continuous telemetry paths.
+                </p>
+              </div>
+            )}
+
+            {/* Step Indicators */}
+            <div className="flex gap-1.5 justify-center pt-4">
+              {[1, 2, 3, 4].map(step => (
+                <div
+                  key={step}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    onboardingStep === step ? 'w-6 bg-brand-500' : 'w-2 bg-surface-200 dark:bg-surface-700'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
     </DashboardLayout>
   );
 }

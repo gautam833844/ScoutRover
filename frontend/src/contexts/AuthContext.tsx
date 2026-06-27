@@ -13,6 +13,7 @@ interface AuthContextType extends AuthState {
   updateProfile: (updates: Partial<User>) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   uploadAvatar: (formData: FormData) => Promise<void>;
+  loginAsGuest: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -70,9 +71,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, user }));
   }, [state.user]);
 
+  const loginAsGuest = useCallback(() => {
+    const guestUser = {
+      id: 'guest-operator',
+      name: 'Demo Guest',
+      email: 'guest@atlas.io',
+      role: 'operator',
+      avatar: '',
+      bio: 'Read-only playground guest operator account.',
+      location: 'Atlas Virtual Arena',
+      phone: '',
+      joinedAt: new Date().toISOString(),
+    };
+    localStorage.setItem('scoutrover_token', 'mock-guest-token');
+    localStorage.setItem('scoutrover_session', JSON.stringify(guestUser));
+    setState({
+      user: guestUser,
+      isAuthenticated: true,
+      isLoading: false,
+    });
+  }, []);
+
   return (
     <AuthContext.Provider value={{
-      ...state, login, register, logout, resetPassword, updateProfile, changePassword, uploadAvatar,
+      ...state, login, register, logout, resetPassword, updateProfile, changePassword, uploadAvatar, loginAsGuest,
     }}>
       {children}
     </AuthContext.Provider>

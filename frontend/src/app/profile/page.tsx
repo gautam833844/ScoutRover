@@ -37,7 +37,7 @@ const getActivityIcon = (action: string) => {
 // ══════════════════════════════════════════════════════════════════════════
 function QRGenerator({ defaultText }: { defaultText?: string }) {
   const { success } = useToast();
-  const [text, setText] = useState(defaultText || 'https://scoutrover.app');
+  const [text, setText] = useState(defaultText || 'https://atlas-slam.io');
   const [size, setSize] = useState<number>(QR_CONFIG.defaultSize);
   const [fgColor, setFgColor] = useState<string>(QR_CONFIG.defaultFgColor);
   const [bgColor, setBgColor] = useState<string>(QR_CONFIG.defaultBgColor);
@@ -64,7 +64,7 @@ function QRGenerator({ defaultText }: { defaultText?: string }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = 'scoutrover-qr.png';
+    link.download = 'atlas-qr.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
     success('Downloaded', 'QR code saved as PNG');
@@ -477,14 +477,6 @@ export default function ProfilePage() {
           {/* ── QR Tools ── */}
           {activeTab === 'qr' && (
             <div className="space-y-6 animate-fade-in">
-              <Tabs
-                items={[
-                  { key: 'generate', label: 'Generator', icon: <QrCode className="w-4 h-4" /> },
-                  { key: 'scan',     label: 'Scanner',   icon: <Scan className="w-4 h-4" /> },
-                ]}
-                activeKey={activeTab === 'qr' ? 'generate' : 'scan'}
-                onChange={() => {}}
-              />
               <QRSubTabs user={user} />
             </div>
           )}
@@ -541,11 +533,13 @@ function QRSubTabs({ user }: { user: any }) {
         ))}
       </div>
 
-      {sub === 'generate' ? (
-        <QRGenerator defaultText={profileText} />
-      ) : (
-        <QRScanner />
-      )}
+      <div key={sub} className="animate-fade-in">
+        {sub === 'generate' ? (
+          <QRGenerator defaultText={profileText} />
+        ) : (
+          <QRScanner />
+        )}
+      </div>
     </div>
   );
 }

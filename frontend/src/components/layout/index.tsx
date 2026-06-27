@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, ReactNode } from 'react';
+import React, { useState, useEffect, ReactNode } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { clsx } from 'clsx';
 import {
   LayoutDashboard, Map, User, Settings, LogOut,
@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
-import { Avatar, Button, Tooltip } from '@/components/ui';
+import { Avatar, Button, Tooltip, Modal } from '@/components/ui';
 import { APP_CONFIG, ROUTES } from '@/constants';
 
 // ========== SIDEBAR NAV ITEMS — QR removed, lives in Profile now ==========
@@ -101,8 +101,17 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout } = useAuth();
   const { resolvedTheme, toggleTheme } = useTheme();
+
+  const [showConfirmLogout, setShowConfirmLogout] = useState(false);
+
+  const confirmLogout = () => {
+    setShowConfirmLogout(false);
+    logout();
+    router.push(ROUTES.LOGIN);
+  };
 
   return (
     <>
@@ -154,7 +163,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
               {!collapsed && <span>{resolvedTheme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
             </button>
             <button
-              onClick={logout}
+              onClick={() => setShowConfirmLogout(true)}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 w-full transition-colors"
             >
               <LogOut className="w-5 h-5" />
@@ -187,7 +196,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                 key={item.href}
                 href={item.href}
                 className={clsx(
-                  'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[10px] font-medium transition-colors',
+                  'flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors',
                   isActive
                     ? 'text-brand-600 dark:text-brand-400'
                     : 'text-surface-500 dark:text-surface-400'
@@ -200,6 +209,26 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
           })}
         </div>
       </nav>
+      {showConfirmLogout && (
+        <Modal
+          open={showConfirmLogout}
+          onClose={() => setShowConfirmLogout(false)}
+          title="Confirm Sign Out"
+          size="sm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowConfirmLogout(false)}>Cancel</Button>
+              <Button variant="danger" onClick={confirmLogout}>Logout</Button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <p className="text-sm text-surface-500 dark:text-surface-400">
+              Are you sure you want to sign out of your Atlas account?
+            </p>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
@@ -270,16 +299,36 @@ export function Footer() {
 // ========== DASHBOARD LAYOUT ==========
 export function DashboardLayout({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setIsOnline(navigator.onLine);
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-surface-50 dark:bg-dark-bg">
       <Header />
       <div className="flex">
         <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-        <main className={clsx(
+        <main id="main-content" className={clsx(
           'flex-1 min-h-[calc(100vh-4rem)] transition-all duration-300 pb-20 lg:pb-0',
           sidebarCollapsed ? 'lg:ml-[72px]' : 'lg:ml-60'
         )}>
+          {!isOnline && (
+            <div className="bg-red-500 text-white text-xs font-semibold py-2 px-4 flex items-center justify-center gap-2 animate-fade-in z-50">
+              <WifiOff className="w-4 h-4 flex-shrink-0" />
+              <span>Offline: Operating in local cached mode. Some cloud sync functions may be unavailable.</span>
+            </div>
+          )}
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
             {children}
           </div>
@@ -315,7 +364,7 @@ export function AuthLayout({ children, title, subtitle }: { children: ReactNode;
             ].map(s => (
               <div key={s.label} className="text-center">
                 <p className="text-xl font-bold text-white">{s.value}</p>
-                <p className="text-xs text-white/40 mt-1">{s.label}</p>
+                <p className="text-xs text-white/60 mt-1">{s.label}</p>
               </div>
             ))}
           </div>

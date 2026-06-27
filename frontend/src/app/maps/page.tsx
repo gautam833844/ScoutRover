@@ -7,7 +7,7 @@ import {
   QrCode, FileDown, FileCode, FileText, Package, Wifi, WifiOff, UploadCloud, Activity, Compass
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
-import { Button, Breadcrumb, SearchBar, Badge } from '@/components/ui';
+import { Button, Breadcrumb, SearchBar, Badge, Modal, Input } from '@/components/ui';
 import { useToast } from '@/contexts/ToastContext';
 import { ROS_CONFIG } from '@/constants';
 import { MapMarker, MapRoute } from '@/types';
@@ -114,6 +114,19 @@ function MapComponent() {
   const [qrModalTitle, setQrModalTitle] = useState('');
   const [qrModalContent, setQrModalContent] = useState('');
   const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // New modal states to replace browser prompt() dialogs
+  const [showWaypointModal, setShowWaypointModal] = useState(false);
+  const [waypointCoords, setWaypointCoords] = useState<{ x: number; y: number } | null>(null);
+  const [waypointTitle, setWaypointTitle] = useState('');
+  const [waypointDescription, setWaypointDescription] = useState('');
+
+  const [showRouteModal, setShowRouteModal] = useState(false);
+  const [routeName, setRouteName] = useState('');
+
+  // Sidebar search & sort states
+  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [sidebarSort, setSidebarSort] = useState<'name' | 'newest'>('newest');
 
   // Live ROS teleoperation states
   const [isLiveMode, setIsLiveMode] = useState(false);
@@ -353,18 +366,23 @@ function MapComponent() {
       info('Select Map', 'Please choose or create a map first');
       return;
     }
-    
-    const title = prompt('Enter waypoint title:', `Waypoint ${markers.length + 1}`);
-    if (!title) return;
-    const description = prompt('Enter description (optional):') || '';
+    setWaypointCoords({ x, y });
+    setWaypointTitle(`Waypoint ${markers.length + 1}`);
+    setWaypointDescription('');
+    setShowWaypointModal(true);
+  };
+
+  const confirmAddWaypoint = async () => {
+    if (!waypointCoords || !selectedMap || !waypointTitle.trim()) return;
+    setShowWaypointModal(false);
 
     try {
       const saved = await mapService.saveMarker({
         mapId: selectedMap.id,
-        title,
-        description,
-        lat: y, // lat represents Cartesian Y
-        lng: x, // lng represents Cartesian X
+        title: waypointTitle.trim(),
+        description: waypointDescription.trim(),
+        lat: waypointCoords.y, // lat represents Cartesian Y
+        lng: waypointCoords.x, // lng represents Cartesian X
         color: '#06b6d4',
       });
       
@@ -392,14 +410,18 @@ function MapComponent() {
 
   const handleSaveRoute = async () => {
     if (routePoints.length < 2 || !selectedMap) return;
-    
-    const name = prompt('Enter route configuration name:', `Inspection Path ${savedRoutes.length + 1}`);
-    if (!name) return;
+    setRouteName(`Inspection Path ${savedRoutes.length + 1}`);
+    setShowRouteModal(true);
+  };
+
+  const confirmSaveRoute = async () => {
+    if (!routeName.trim() || !selectedMap || routePoints.length < 2) return;
+    setShowRouteModal(false);
 
     try {
       const saved = await mapService.saveRoute({
         mapId: selectedMap.id,
-        name,
+        name: routeName.trim(),
         points: routePoints,
         distance: routeDistance,
         color: '#22c55e',
@@ -498,6 +520,16 @@ function MapComponent() {
     originY: selectedMap?.originY || 0,
   };
 
+  const filteredAndSortedMaps = maps
+    .filter(m => m.name.toLowerCase().includes(sidebarSearch.toLowerCase()))
+    .sort((a, b) => {
+      if (sidebarSort === 'name') {
+        return a.name.localeCompare(b.name);
+      } else {
+        return b.id.localeCompare(a.id);
+      }
+    });
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
       {/* Sidebar selection */}
@@ -522,8 +554,30 @@ function MapComponent() {
             </button>
           </form>
 
+          {/* Search & Sort controls */}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-surface-400" />
+              <input
+                type="text"
+                value={sidebarSearch}
+                onChange={e => setSidebarSearch(e.target.value)}
+                placeholder="Search maps..."
+                className="w-full text-[10px] pl-8 pr-2.5 py-1 rounded-lg border border-surface-200 dark:border-white/10 bg-transparent dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            </div>
+            <select
+              value={sidebarSort}
+              onChange={e => setSidebarSort(e.target.value as 'name' | 'newest')}
+              className="text-[10px] px-1.5 py-1 rounded-lg border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-card text-surface-600 dark:text-surface-300 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer"
+            >
+              <option value="newest">Newest</option>
+              <option value="name">Name A-Z</option>
+            </select>
+          </div>
+
           <div className="space-y-1 max-h-[160px] overflow-y-auto pr-1">
-            {maps.map(m => (
+            {filteredAndSortedMaps.map(m => (
               <div
                 key={m.id}
                 onClick={() => {
@@ -884,7 +938,7 @@ function MapComponent() {
       {exportModalMap && (
         <div className="modal-overlay">
           <div className="modal-content max-w-md p-6 relative bg-white dark:bg-dark-card border border-surface-200 dark:border-white/10 rounded-2xl shadow-glow">
-            <button onClick={() => setExportModalMap(null)} className="absolute top-4 right-4 text-surface-400 hover:text-surface-600 dark:hover:text-white transition-colors">
+            <button onClick={() => setExportModalMap(null)} className="absolute top-4 right-4 text-surface-400 hover:text-surface-600 dark:hover:text-white transition-colors" aria-label="Close export dialog">
               <X className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3 mb-2">
@@ -938,7 +992,7 @@ function MapComponent() {
                   <FileCode className="w-5 h-5 text-brand-500" />
                   <div>
                     <p className="text-sm font-semibold text-surface-900 dark:text-white font-sans">YAML Config</p>
-                    <p className="text-xs text-surface-500">ScoutRover map metadata + resolution</p>
+                    <p className="text-xs text-surface-500">Atlas map metadata + resolution</p>
                   </div>
                 </div>
                 <Button size="sm" variant="secondary" icon={<FileDown className="w-4 h-4" />}
@@ -1001,6 +1055,7 @@ function MapComponent() {
             <button
               onClick={() => setQrModalOpen(false)}
               className="absolute top-4 right-4 text-surface-400 hover:text-surface-600 dark:hover:text-surface-200"
+              aria-label="Close QR dialog"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1031,7 +1086,7 @@ function MapComponent() {
                   const canvas = qrCanvasRef.current;
                   if (!canvas) return;
                   const link = document.createElement('a');
-                  link.download = 'scoutrover-qr-code.png';
+                  link.download = 'atlas-qr-code.png';
                   link.href = canvas.toDataURL('image/png');
                   link.click();
                   success('Downloaded', 'QR Code saved successfully');
@@ -1042,6 +1097,70 @@ function MapComponent() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Waypoint Modal replacing window.prompt */}
+      {showWaypointModal && (
+        <Modal
+          open={showWaypointModal}
+          onClose={() => setShowWaypointModal(false)}
+          title="Add Waypoint"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowWaypointModal(false)}>Cancel</Button>
+              <Button variant="primary" onClick={confirmAddWaypoint}>Save Waypoint</Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <Input
+              label="Waypoint Title"
+              value={waypointTitle}
+              onChange={e => setWaypointTitle(e.target.value)}
+              placeholder="e.g. Loading Dock B"
+              autoFocus
+            />
+            <Input
+              label="Description (optional)"
+              value={waypointDescription}
+              onChange={e => setWaypointDescription(e.target.value)}
+              placeholder="e.g. Secondary charging hub"
+            />
+            {waypointCoords && (
+              <p className="text-xs font-mono text-surface-400">
+                Coordinates: [{waypointCoords.x.toFixed(2)}, {waypointCoords.y.toFixed(2)}]
+              </p>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Route Modal replacing window.prompt */}
+      {showRouteModal && (
+        <Modal
+          open={showRouteModal}
+          onClose={() => setShowRouteModal(false)}
+          title="Save Inspection Route"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowRouteModal(false)}>Cancel</Button>
+              <Button variant="primary" onClick={confirmSaveRoute}>Save Route</Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <Input
+              label="Route Name"
+              value={routeName}
+              onChange={e => setRouteName(e.target.value)}
+              placeholder="e.g. Night Patrol Path"
+              autoFocus
+            />
+            <p className="text-xs text-surface-400">
+              Total distance: {routeDistance.toFixed(2)} meters ({routePoints.length} points)
+            </p>
+          </div>
+        </Modal>
       )}
     </div>
   );

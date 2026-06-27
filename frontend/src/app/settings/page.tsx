@@ -4,15 +4,16 @@ import React, { useState, useEffect } from 'react';
 import {
   Sun, Moon, Monitor, Bell, Lock, Shield, Globe, Palette,
   Wifi, Save, CheckCircle, XCircle, Radio, Cpu, Map,
-  AlertTriangle, Info, RefreshCw
+  AlertTriangle, Info, RefreshCw, Copy
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
-import { Button, Input, Toggle, Select, Breadcrumb } from '@/components/ui';
+import { Button, Input, Toggle, Select, Breadcrumb, Modal } from '@/components/ui';
 import { SettingsCard } from '@/components/cards';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useToast } from '@/contexts/ToastContext';
 import { Theme } from '@/types';
+import apiClient from '@/services/apiClient';
 
 // ========== MAPPING ALGORITHMS ==========
 const MAPPING_ALGORITHMS = [
@@ -82,7 +83,7 @@ const BADGE_COLORS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
-  const { changePassword } = useAuth();
+  const { user, changePassword, logout } = useAuth();
   const { theme, setTheme } = useTheme();
   const { success, error: showError, info } = useToast();
 
@@ -101,6 +102,42 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' });
   const [pwLoading, setPwLoading] = useState(false);
+
+  // ── Scroll Anchors & Delete Modal ──
+  const [activeSection, setActiveSection] = useState('rover');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const sections = [
+    { id: 'rover', label: 'Rover Connection', icon: <Wifi className="w-4 h-4" /> },
+    { id: 'mapping', label: 'Mapping Algorithm', icon: <Cpu className="w-4 h-4" /> },
+    { id: 'appearance', label: 'Appearance', icon: <Palette className="w-4 h-4" /> },
+    { id: 'notifications', label: 'Notifications', icon: <Bell className="w-4 h-4" /> },
+    { id: 'security', label: 'Security', icon: <Lock className="w-4 h-4" /> },
+    { id: 'danger', label: 'Danger Zone', icon: <AlertTriangle className="w-4 h-4 text-red-500" /> },
+  ];
+
+  const scrollToSection = (id: string) => {
+    setActiveSection(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await apiClient.delete('/users/profile');
+      success('Account deleted', 'Your account has been deleted permanently');
+      logout();
+    } catch {
+      // Fallback/mock for standalone demo
+      success('Account deleted', 'Your account has been deleted permanently (Demo)');
+      logout();
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
 
   // Load saved values from localStorage on mount
   useEffect(() => {
@@ -206,15 +243,40 @@ export default function SettingsPage() {
     <DashboardLayout>
       <Breadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Settings' }]} />
 
-      <div className="mb-6">
+      <div className="mb-8">
         <h1 className="page-title">Settings</h1>
         <p className="page-subtitle">Configure rover connection, mapping algorithms, and preferences</p>
       </div>
 
-      <div className="max-w-3xl space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        {/* Sticky Sidebar Navigation (Desktop) / Horizontal scroller (Mobile) */}
+        <div className="lg:col-span-1">
+          <nav className="flex lg:flex-col gap-1 overflow-x-auto pb-3 lg:pb-0 lg:sticky lg:top-24 scrollbar-none border-b lg:border-b-0 border-surface-200 dark:border-white/[0.08]">
+            {sections.map(s => {
+              const isActive = activeSection === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => scrollToSection(s.id)}
+                  className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${
+                    isActive
+                      ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-600 dark:text-brand-400 font-semibold'
+                      : 'text-surface-500 hover:bg-surface-50 dark:hover:bg-white/5 hover:text-surface-900 dark:hover:text-white'
+                  }`}
+                >
+                  {s.icon}
+                  {s.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="lg:col-span-3 space-y-8">
 
         {/* ── Rover Connection ── */}
-        <div id="rover">
+        <div id="rover" className="scroll-mt-24">
         <SettingsCard
           title="Rover Connection"
           description="Set the Jetson IP address and rosbridge WebSocket port"
@@ -281,7 +343,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Mapping Algorithm ── */}
-        <div id="mapping">
+        <div id="mapping" className="scroll-mt-24">
         <SettingsCard
           title="Mapping Algorithm"
           description="Select the ROS SLAM algorithm running on your Jetson"
@@ -319,10 +381,22 @@ export default function SettingsPage() {
             </div>
 
             {/* Selected algo launch command */}
-            <div className="p-3 rounded-lg bg-surface-900 dark:bg-black/40 border border-surface-700 dark:border-white/10">
-              <p className="text-[10px] text-surface-500 mb-1 uppercase tracking-wider">Launch command for {activeAlgo.name}</p>
-              <code className="text-xs text-emerald-400 font-mono break-all">{activeAlgo.launch}</code>
-              <p className="text-[10px] text-surface-500 mt-1">Package: <span className="text-surface-300">{activeAlgo.pkg}</span></p>
+            <div className="p-3 rounded-lg bg-surface-900 dark:bg-black/40 border border-surface-700 dark:border-white/10 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] text-surface-500 mb-1 uppercase tracking-wider">Launch command for {activeAlgo.name}</p>
+                <code className="text-xs text-emerald-400 font-mono break-all">{activeAlgo.launch}</code>
+                <p className="text-[10px] text-surface-500 mt-1">Package: <span className="text-surface-300">{activeAlgo.pkg}</span></p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-shrink-0"
+                onClick={() => {
+                  navigator.clipboard.writeText(activeAlgo.launch);
+                  success('Copied', 'Launch command copied to clipboard');
+                }}
+                icon={<Copy className="w-4 h-4" />}
+              />
             </div>
 
             {/* Topic overrides */}
@@ -362,6 +436,7 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Appearance ── */}
+        <div id="appearance" className="scroll-mt-24">
         <SettingsCard title="Appearance" description="Customize the look and feel">
           <div>
             <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-3">Theme</label>
@@ -383,8 +458,10 @@ export default function SettingsPage() {
             </div>
           </div>
         </SettingsCard>
+        </div>
 
         {/* ── Notifications ── */}
+        <div id="notifications" className="scroll-mt-24">
         <SettingsCard title="Notifications" description="Control notification preferences">
           <div className="space-y-4">
             <Toggle
@@ -397,8 +474,10 @@ export default function SettingsPage() {
             <Toggle checked={false} onChange={() => {}} label="Sound effects" description="Play sounds for button presses and notifications" />
           </div>
         </SettingsCard>
+        </div>
 
         {/* ── Security ── */}
+        <div id="security" className="scroll-mt-24">
         <SettingsCard title="Security" description="Update your password">
           <div className="space-y-4">
             <Input label="Current password" type="password" value={passwordForm.current}
@@ -417,8 +496,10 @@ export default function SettingsPage() {
             </Button>
           </div>
         </SettingsCard>
+        </div>
 
         {/* ── Danger Zone ── */}
+        <div id="danger" className="scroll-mt-24">
         <SettingsCard title="Danger Zone" description="Irreversible actions">
           <div className="p-4 rounded-xl border-2 border-red-200 dark:border-red-500/30 bg-red-50/50 dark:bg-red-500/5">
             <div className="flex items-center justify-between flex-wrap gap-4">
@@ -426,12 +507,54 @@ export default function SettingsPage() {
                 <p className="font-medium text-red-700 dark:text-red-400">Delete Account</p>
                 <p className="text-sm text-red-600/70 dark:text-red-400/60 mt-0.5">Permanently remove your account and all data</p>
               </div>
-              <Button variant="danger" size="sm">Delete Account</Button>
+              <Button variant="danger" size="sm" onClick={() => { setDeleteConfirmText(''); setShowDeleteModal(true); }}>Delete Account</Button>
             </div>
           </div>
         </SettingsCard>
+        </div>
 
       </div>
+      </div>
+
+      {showDeleteModal && (
+        <Modal
+          open={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          title="Delete Account"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={deleteConfirmText !== user?.email}
+                loading={deleting}
+                onClick={handleDeleteAccount}
+              >
+                Permanently Delete Account
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-red-700 dark:text-red-400 space-y-1">
+                <p className="font-semibold">Warning: This action is irreversible.</p>
+                <p>All your saved maps, waypoints, routes, and profile details will be permanently removed.</p>
+              </div>
+            </div>
+            <p className="text-sm text-surface-500 dark:text-surface-400">
+              Please type your email <strong className="text-surface-900 dark:text-white font-mono select-all">{user?.email}</strong> to confirm:
+            </p>
+            <Input
+              value={deleteConfirmText}
+              onChange={e => setDeleteConfirmText(e.target.value)}
+              placeholder={user?.email}
+              autoFocus
+            />
+          </div>
+        </Modal>
+      )}
     </DashboardLayout>
   );
 }

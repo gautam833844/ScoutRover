@@ -8,7 +8,7 @@ import { getPasswordStrength } from '@/utils/validators';
 
 // ========== BUTTON ==========
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline' | 'inverted' | 'on-dark';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   icon?: ReactNode;
@@ -24,6 +24,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(({
     ghost: 'btn-ghost',
     danger: 'btn-danger',
     outline: 'btn-outline',
+    inverted: 'bg-white text-brand-600 hover:bg-white/90 border border-white',
+    'on-dark': 'bg-transparent text-white border border-white/20 hover:bg-white/10',
   };
   const sizes = {
     sm: 'btn-sm',
@@ -229,12 +231,12 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
   const sizes = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label={title || 'Dialog'}>
       <div className={clsx('modal-content', sizes[size])} onClick={e => e.stopPropagation()}>
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-surface-200 dark:border-white/[0.08]">
             <h3 className="text-lg font-semibold text-surface-900 dark:text-white">{title}</h3>
-            <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg">
+            <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg" aria-label="Close dialog">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -356,12 +358,15 @@ interface TabsProps {
 
 export function Tabs({ items, activeKey, onChange, className }: TabsProps) {
   return (
-    <div className={clsx('flex gap-1 border-b border-surface-200 dark:border-white/[0.08]', className)}>
+    <div className={clsx('flex gap-1 border-b border-surface-200 dark:border-white/[0.08]', className)} role="tablist">
       {items.map(item => (
         <button
           key={item.key}
           onClick={() => onChange(item.key)}
           className={clsx('tab flex items-center gap-2', activeKey === item.key && 'active')}
+          role="tab"
+          aria-selected={activeKey === item.key}
+          tabIndex={activeKey === item.key ? 0 : -1}
         >
           {item.icon}
           {item.label}
@@ -410,26 +415,49 @@ const toastStyles: Record<ToastType, { bg: string; icon: ReactNode }> = {
   },
 };
 
+function ToastItem({ toast, onRemove }: { toast: import('@/types').Toast; onRemove: (id: string) => void }) {
+  const [isLeaving, setIsLeaving] = useState(false);
+
+  useEffect(() => {
+    if (toast.duration && toast.duration > 0) {
+      const timer = setTimeout(() => {
+        setIsLeaving(true);
+        setTimeout(() => onRemove(toast.id), 250); // Wait for slide-out animation (250ms)
+      }, toast.duration - 250);
+      return () => clearTimeout(timer);
+    }
+  }, [toast, onRemove]);
+
+  const handleManualRemove = () => {
+    setIsLeaving(true);
+    setTimeout(() => onRemove(toast.id), 250);
+  };
+
+  return (
+    <div
+      className={clsx(
+        'flex items-start gap-3 p-4 rounded-xl border shadow-lg pointer-events-auto transition-all',
+        isLeaving ? 'animate-slide-out-right' : 'animate-slide-in-right',
+        toastStyles[toast.type].bg
+      )}
+    >
+      <span className="flex-shrink-0 mt-0.5">{toastStyles[toast.type].icon}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold">{toast.title}</p>
+        {toast.message && <p className="text-xs mt-0.5 opacity-80">{toast.message}</p>}
+      </div>
+      <button onClick={handleManualRemove} className="flex-shrink-0 opacity-60 hover:opacity-100">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
+
 export function ToastContainer({ toasts, onRemove }: { toasts: import('@/types').Toast[]; onRemove: (id: string) => void }) {
   return (
     <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
       {toasts.map(toast => (
-        <div
-          key={toast.id}
-          className={clsx(
-            'flex items-start gap-3 p-4 rounded-xl border shadow-lg animate-slide-in-right pointer-events-auto',
-            toastStyles[toast.type].bg
-          )}
-        >
-          <span className="flex-shrink-0 mt-0.5">{toastStyles[toast.type].icon}</span>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold">{toast.title}</p>
-            {toast.message && <p className="text-xs mt-0.5 opacity-80">{toast.message}</p>}
-          </div>
-          <button onClick={() => onRemove(toast.id)} className="flex-shrink-0 opacity-60 hover:opacity-100">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
       ))}
     </div>
   );

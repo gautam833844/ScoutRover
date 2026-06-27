@@ -33,6 +33,22 @@ export default function RegisterPage() {
     return Object.keys(e).length === 0;
   };
 
+  const handleBlur = (field: 'name' | 'email' | 'password' | 'confirmPassword') => {
+    if (field === 'name') {
+      const result = validateName(form.name);
+      setErrors(prev => ({ ...prev, name: result.valid ? '' : result.error! }));
+    } else if (field === 'email') {
+      const result = validateEmail(form.email);
+      setErrors(prev => ({ ...prev, email: result.valid ? '' : result.error! }));
+    } else if (field === 'password') {
+      const result = validatePassword(form.password);
+      setErrors(prev => ({ ...prev, password: result.valid ? '' : result.error! }));
+    } else if (field === 'confirmPassword') {
+      const result = validateConfirmPassword(form.password, form.confirmPassword);
+      setErrors(prev => ({ ...prev, confirmPassword: result.valid ? '' : result.error! }));
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
@@ -40,7 +56,7 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(form);
-      success('Account created!', 'Welcome to ScoutRover.');
+      success('Account created!', 'Welcome to Atlas.');
       router.push(ROUTES.DASHBOARD);
     } catch (err: any) {
       showError('Registration failed', err.message);
@@ -50,7 +66,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <AuthLayout title="Create an account" subtitle="Join ScoutRover and start mapping">
+    <AuthLayout title="Create an account" subtitle="Join Atlas and start mapping">
       <form onSubmit={handleSubmit} className="space-y-5">
         <Input
           label="Full name"
@@ -58,9 +74,11 @@ export default function RegisterPage() {
           placeholder="John Doe"
           value={form.name}
           onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          onBlur={() => handleBlur('name')}
           error={errors.name}
           leftIcon={<User className="w-4 h-4" />}
           autoComplete="name"
+          autoFocus
         />
 
         <Input
@@ -69,6 +87,7 @@ export default function RegisterPage() {
           placeholder="you@example.com"
           value={form.email}
           onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+          onBlur={() => handleBlur('email')}
           error={errors.email}
           leftIcon={<Mail className="w-4 h-4" />}
           autoComplete="email"
@@ -81,6 +100,7 @@ export default function RegisterPage() {
             placeholder="••••••••"
             value={form.password}
             onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+            onBlur={() => handleBlur('password')}
             error={errors.password}
             leftIcon={<Lock className="w-4 h-4" />}
             autoComplete="new-password"
@@ -94,6 +114,7 @@ export default function RegisterPage() {
           placeholder="••••••••"
           value={form.confirmPassword}
           onChange={e => setForm(f => ({ ...f, confirmPassword: e.target.value }))}
+          onBlur={() => handleBlur('confirmPassword')}
           error={errors.confirmPassword}
           leftIcon={<Lock className="w-4 h-4" />}
           autoComplete="new-password"
@@ -102,8 +123,14 @@ export default function RegisterPage() {
         <div className="flex items-start gap-2">
           <input type="checkbox" className="w-4 h-4 mt-0.5 rounded border-surface-300 text-brand-600 focus:ring-brand-500" required />
           <span className="text-sm text-surface-500 dark:text-surface-400">
-            I agree to the <a href="#" className="text-brand-600 dark:text-brand-400 hover:underline">Terms of Service</a> and{' '}
-            <a href="#" className="text-brand-600 dark:text-brand-400 hover:underline">Privacy Policy</a>
+            I agree to the{' '}
+            <Link href="/terms" className="text-brand-600 dark:text-brand-400 hover:underline">
+              Terms of Service
+            </Link>{' '}
+            and{' '}
+            <Link href="/privacy" className="text-brand-600 dark:text-brand-400 hover:underline">
+              Privacy Policy
+            </Link>
           </span>
         </div>
 
@@ -111,6 +138,24 @@ export default function RegisterPage() {
           Create account
         </Button>
       </form>
+
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-surface-200 dark:border-white/[0.08]" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-white dark:bg-dark-card px-2 text-surface-500">Or continue with</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Button variant="outline" type="button" className="w-full" onClick={() => success('OAuth Registration', 'Redirecting to Google OAuth... (Demo)')}>
+          Google
+        </Button>
+        <Button variant="outline" type="button" className="w-full" onClick={() => success('OAuth Registration', 'Redirecting to GitHub OAuth... (Demo)')}>
+          GitHub
+        </Button>
+      </div>
 
       <div className="mt-8 text-center">
         <p className="text-sm text-surface-500 dark:text-surface-400">

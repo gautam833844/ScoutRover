@@ -40,7 +40,7 @@ export default function QRCodePage() {
 // ========== QR GENERATOR ==========
 function QRGenerator() {
   const { success } = useToast();
-  const [text, setText] = useState('https://scoutrover.app');
+  const [text, setText] = useState('https://atlas-slam.io');
   const [size, setSize] = useState<number>(QR_CONFIG.defaultSize);
   const [fgColor, setFgColor] = useState<string>(QR_CONFIG.defaultFgColor);
   const [bgColor, setBgColor] = useState<string>(QR_CONFIG.defaultBgColor);
@@ -69,7 +69,7 @@ function QRGenerator() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
-    link.download = 'scoutrover-qr.png';
+    link.download = 'atlas-qr.png';
     link.href = canvas.toDataURL('image/png');
     link.click();
     success('Downloaded', 'QR code saved as PNG');
