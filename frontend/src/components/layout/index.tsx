@@ -7,7 +7,7 @@ import { clsx } from 'clsx';
 import {
   LayoutDashboard, Map, User, Settings, LogOut,
   Menu, X, Sun, Moon, ChevronLeft, Compass,
-  Wifi, WifiOff, Activity, Shield
+  Wifi, WifiOff, Activity, Shield, HelpCircle
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -16,10 +16,11 @@ import { APP_CONFIG, ROUTES } from '@/constants';
 
 // ========== SIDEBAR NAV ITEMS — QR removed, lives in Profile now ==========
 const navItems = [
-  { label: 'Dashboard', href: ROUTES.DASHBOARD, icon: <LayoutDashboard className="w-5 h-5" /> },
-  { label: 'Maps',      href: ROUTES.MAPS,      icon: <Map className="w-5 h-5" /> },
-  { label: 'Profile',   href: ROUTES.PROFILE,   icon: <User className="w-5 h-5" /> },
-  { label: 'Settings',  href: ROUTES.SETTINGS,  icon: <Settings className="w-5 h-5" /> },
+  { label: 'Dashboard',  href: ROUTES.DASHBOARD, icon: <LayoutDashboard className="w-5 h-5" /> },
+  { label: 'Maps',       href: ROUTES.MAPS,      icon: <Map className="w-5 h-5" /> },
+  { label: 'Profile',    href: ROUTES.PROFILE,   icon: <User className="w-5 h-5" /> },
+  { label: 'Settings',   href: ROUTES.SETTINGS,  icon: <Settings className="w-5 h-5" /> },
+  { label: 'User Guide', href: ROUTES.GUIDE,     icon: <HelpCircle className="w-5 h-5" /> },
 ];
 
 // ========== HEADER ==========

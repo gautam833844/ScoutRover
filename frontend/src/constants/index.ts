@@ -9,6 +9,7 @@ export const ROUTES = {
   QR_CODE: '/qr-code',
   PROFILE: '/profile',
   SETTINGS: '/settings',
+  GUIDE: '/guide',
 } as const;
 
 // ========== APP CONFIG ==========
