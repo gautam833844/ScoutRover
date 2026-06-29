@@ -57,6 +57,18 @@ export default function DashboardPage() {
   const [currentDirection, setCurrentDirection] = useState<string | null>(null);
   const [savingMap, setSavingMap] = useState(false);
   const [exportingToJetson, setExportingToJetson] = useState(false);
+  const [tempRosUrl, setTempRosUrl] = useState('');
+
+  useEffect(() => {
+    const stored = localStorage.getItem('scoutrover_ros_url') || 'ws://localhost:9090';
+    setTempRosUrl(stored);
+  }, []);
+
+  const handleTempConnect = () => {
+    if (!tempRosUrl.trim()) return;
+    localStorage.setItem('scoutrover_ros_url', tempRosUrl.trim());
+    connectToROS();
+  };
   
   const [activities, setActivities] = useState<any[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
@@ -311,15 +323,37 @@ export default function DashboardPage() {
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">Welcome back, {user?.name?.split(' ')[0] || 'Explorer'}</p>
         </div>
-        <Button
-          variant={rosStatus === 'connected' ? 'secondary' : 'primary'}
-          onClick={connectToROS}
-          loading={rosStatus === 'connecting'}
-          icon={rosStatus === 'connected' ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
-          size="sm"
-        >
-          {rosStatus === 'connected' ? 'Connected' : rosStatus === 'connecting' ? 'Connecting...' : 'Connect Rover'}
-        </Button>
+        <div className="flex items-center gap-2">
+          {rosStatus !== 'connected' ? (
+            <div className="flex items-center gap-1.5 animate-fade-in">
+              <input
+                type="text"
+                placeholder="ws://192.168.1.100:9090"
+                value={tempRosUrl}
+                onChange={(e) => setTempRosUrl(e.target.value)}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-elevated dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
+              />
+              <Button
+                variant="primary"
+                onClick={handleTempConnect}
+                loading={rosStatus === 'connecting'}
+                icon={<Wifi className="w-4 h-4" />}
+                size="sm"
+              >
+                Connect
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="secondary"
+              onClick={disconnectFromROS}
+              icon={<Wifi className="w-4 h-4" />}
+              size="sm"
+            >
+              Disconnect
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Stats Grid */}

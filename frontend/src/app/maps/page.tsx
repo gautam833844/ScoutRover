@@ -149,6 +149,18 @@ function MapComponent() {
   const [pushingToJetson, setPushingToJetson] = useState(false);
   const [dbMapName, setDbMapName] = useState('');
   const [savingToDb, setSavingToDb] = useState(false);
+  const [tempRosUrl, setTempRosUrl] = useState('');
+
+  useEffect(() => {
+    const stored = localStorage.getItem('scoutrover_ros_url') || 'ws://localhost:9090';
+    setTempRosUrl(stored);
+  }, []);
+
+  const handleTempConnect = () => {
+    if (!tempRosUrl.trim()) return;
+    localStorage.setItem('scoutrover_ros_url', tempRosUrl.trim());
+    connectToROS();
+  };
   
   // QR Code Modal States
   const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -861,15 +873,24 @@ function MapComponent() {
                   {rosStatus === 'connected' ? 'ROS Live' : rosStatus === 'connecting' ? 'Connecting...' : 'ROS Offline'}
                 </Badge>
                 {rosStatus !== 'connected' && (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    loading={rosStatus === 'connecting'}
-                    onClick={connectToROS}
-                    icon={<Wifi className="w-3.5 h-3.5" />}
-                  >
-                    Connect
-                  </Button>
+                  <div className="flex items-center gap-1.5 animate-fade-in">
+                    <input
+                      type="text"
+                      placeholder="ws://192.168.1.100:9090"
+                      value={tempRosUrl}
+                      onChange={(e) => setTempRosUrl(e.target.value)}
+                      className="text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-elevated dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500 w-44"
+                    />
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      loading={rosStatus === 'connecting'}
+                      onClick={handleTempConnect}
+                      icon={<Wifi className="w-3.5 h-3.5" />}
+                    >
+                      Connect
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
