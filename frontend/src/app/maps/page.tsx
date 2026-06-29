@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Map as MapIcon, Layers, Search, Navigation, MapPin,
   Plus, Minus, Crosshair, Route, Trash2, Ruler, X, Save, FolderPlus,
-  QrCode, FileDown, FileCode, FileText, Package, Wifi, WifiOff, UploadCloud, Activity, Compass, Image as ImageIcon
+  QrCode, FileDown, FileCode, FileText, Package, Wifi, WifiOff, UploadCloud, Activity, Compass, Image as ImageIcon, AlertTriangle
 } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout';
 import { Button, Breadcrumb, SearchBar, Badge, Modal, Input } from '@/components/ui';
@@ -147,6 +147,8 @@ function MapComponent() {
   const [exportModalMap, setExportModalMap] = useState<SavedMap | null>(null);
   const [customExportPath, setCustomExportPath] = useState('/home/jetson/maps');
   const [pushingToJetson, setPushingToJetson] = useState(false);
+  const [dbMapName, setDbMapName] = useState('');
+  const [savingToDb, setSavingToDb] = useState(false);
   
   // QR Code Modal States
   const [qrModalOpen, setQrModalOpen] = useState(false);
@@ -511,6 +513,33 @@ function MapComponent() {
       showError('Jetson push failed', err.message || 'Could not write files to Jetson.');
     } finally {
       setPushingToJetson(false);
+    }
+  };
+
+  const handleSaveToDatabase = async () => {
+    if (!dbMapName.trim()) {
+      showError('Required', 'Please enter a valid map name.');
+      return;
+    }
+    if (!exportModalMap) return;
+    setSavingToDb(true);
+    try {
+      const saved = await mapService.saveMap({
+        name: dbMapName.trim(),
+        width: exportModalMap.width,
+        height: exportModalMap.height,
+        resolution: exportModalMap.resolution,
+        originX: exportModalMap.originX,
+        originY: exportModalMap.originY,
+        gridData: exportModalMap.gridData,
+      });
+      success('Saved to Database', `Successfully saved map '${saved.name}' to database.`);
+      setExportModalMap(null);
+      loadMaps(saved.id);
+    } catch (err: any) {
+      showError('Failed to Save', err.message || 'Could not save map to database.');
+    } finally {
+      setSavingToDb(false);
     }
   };
 
@@ -975,9 +1004,11 @@ function MapComponent() {
                   onClick={() => {
                     if (isLiveMode) {
                       if (liveGrid) {
+                        const defaultName = `LiDAR_Scan_${new Date().toLocaleTimeString().replace(/:/g, '-')}`;
+                        setDbMapName(defaultName);
                         setExportModalMap({
                           id: 'live-scan',
-                          name: `Live_Scan_${new Date().toLocaleTimeString().replace(/:/g, '-')}`,
+                          name: defaultName,
                           width: liveGrid.width,
                           height: liveGrid.height,
                           resolution: liveGrid.resolution,
@@ -991,6 +1022,7 @@ function MapComponent() {
                         showError('No map data', 'Awaiting live LiDAR occupancy grid scan data.');
                       }
                     } else if (selectedMap) {
+                      setDbMapName(selectedMap.name);
                       setExportModalMap(selectedMap);
                     }
                   }}
@@ -1024,36 +1056,74 @@ function MapComponent() {
             </p>
 
             <div className="space-y-3">
-              {/* Push directly to Jetson storage */}
-              <div className="p-4 rounded-xl border border-brand-500/20 dark:border-brand-500/30 bg-brand-50/20 dark:bg-brand-500/5 space-y-3">
+              {/* Save to Local database */}
+              <div className="p-4 rounded-xl border border-emerald-500/20 dark:border-emerald-500/30 bg-emerald-50/10 dark:bg-emerald-500/5 space-y-3">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <UploadCloud className="w-5 h-5 text-brand-500" />
+                    <FolderPlus className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                     <div>
-                      <p className="text-sm font-semibold text-surface-900 dark:text-white">Save on Jetson Developer Kit</p>
-                      <p className="text-xs text-surface-500">Pushes YAML + PGM configs directly to host</p>
+                      <p className="text-sm font-semibold text-surface-900 dark:text-white">Save to Map Database</p>
+                      <p className="text-xs text-surface-500">Saves this scan profile to Saved Maps Database list</p>
                     </div>
                   </div>
                 </div>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    value={customExportPath}
-                    onChange={(e) => setCustomExportPath(e.target.value)}
-                    placeholder="Jetson path..."
-                    className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-transparent dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    value={dbMapName}
+                    onChange={(e) => setDbMapName(e.target.value)}
+                    placeholder="Enter map name..."
+                    className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-elevated dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                   <Button
                     size="sm"
                     variant="primary"
-                    loading={pushingToJetson}
-                    onClick={handlePushToJetson}
+                    loading={savingToDb}
+                    onClick={handleSaveToDatabase}
                     icon={<Save className="w-3.5 h-3.5" />}
                   >
-                    Push Map
+                    Save to DB
                   </Button>
                 </div>
               </div>
+
+              {/* Push directly to Jetson storage */}
+              {exportModalMap.id !== 'live-scan' ? (
+                <div className="p-4 rounded-xl border border-brand-500/20 dark:border-brand-500/30 bg-brand-50/20 dark:bg-brand-500/5 space-y-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <UploadCloud className="w-5 h-5 text-brand-500" />
+                      <div>
+                        <p className="text-sm font-semibold text-surface-900 dark:text-white">Save on Jetson Developer Kit</p>
+                        <p className="text-xs text-surface-500">Pushes YAML + PGM configs directly to host</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customExportPath}
+                      onChange={(e) => setCustomExportPath(e.target.value)}
+                      placeholder="Jetson path..."
+                      className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-surface-200 dark:border-white/10 bg-white dark:bg-dark-elevated dark:text-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    />
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      loading={pushingToJetson}
+                      onClick={handlePushToJetson}
+                      icon={<Save className="w-3.5 h-3.5" />}
+                    >
+                      Push Map
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl border border-surface-200 dark:border-white/10 bg-surface-50 dark:bg-white/[0.02] flex items-start gap-2.5 text-xs text-surface-500">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p>Save this live scan to the database above to enable direct push to Jetson.</p>
+                </div>
+              )}
 
               {/* YAML local download */}
               <div className="p-3 rounded-xl border border-surface-200 dark:border-white/10 flex items-center justify-between gap-4 hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors">
