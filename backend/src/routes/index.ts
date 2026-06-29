@@ -6,6 +6,7 @@ import markerRoutes from './marker.routes';
 import routeRoutes from './route.routes';
 import auditRoutes from './audit.routes';
 import jetsonRoutes from './jetson.routes';
+import qrcodeRoutes from './qrcode.routes';
 
 const router = Router();
 
@@ -16,5 +17,6 @@ router.use('/markers', markerRoutes);
 router.use('/routes', routeRoutes);
 router.use('/audit-logs', auditRoutes);
 router.use('/jetson', jetsonRoutes);
+router.use('/qrcodes', qrcodeRoutes);
 
 export default router;

@@ -14,6 +14,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { formatDate, timeAgo } from '@/utils/helpers';
 import apiClient from '@/services/apiClient';
 import { QR_CONFIG } from '@/constants';
+import mapService from '@/services/mapService';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 const getAvatarUrl = (avatarPath?: string) => {
@@ -35,7 +36,7 @@ const getActivityIcon = (action: string) => {
 // ══════════════════════════════════════════════════════════════════════════
 // QR GENERATOR sub-component
 // ══════════════════════════════════════════════════════════════════════════
-function QRGenerator({ defaultText }: { defaultText?: string }) {
+function QRGenerator({ defaultText, onQrAction }: { defaultText?: string; onQrAction?: () => void }) {
   const { success } = useToast();
   const [text, setText] = useState(defaultText || 'https://atlas-slam.io');
   const [size, setSize] = useState<number>(QR_CONFIG.defaultSize);
@@ -60,7 +61,7 @@ function QRGenerator({ defaultText }: { defaultText?: string }) {
 
   useEffect(() => { generateQR(); }, [generateQR]);
 
-  const downloadQR = () => {
+  const downloadQR = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const link = document.createElement('a');
@@ -68,6 +69,18 @@ function QRGenerator({ defaultText }: { defaultText?: string }) {
     link.href = canvas.toDataURL('image/png');
     link.click();
     success('Downloaded', 'QR code saved as PNG');
+
+    // Save to backend database
+    try {
+      await apiClient.post('/qrcodes', {
+        title: text.slice(0, 30) || 'Generated QR Code',
+        content: text,
+        actionType: 'generated'
+      });
+      if (onQrAction) onQrAction();
+    } catch (err) {
+      console.warn('Failed to persist generated QR to DB:', err);
+    }
   };
 
   const copyText = async () => {
@@ -76,6 +89,18 @@ function QRGenerator({ defaultText }: { defaultText?: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       success('Copied', 'Text copied to clipboard');
+
+      // Save to backend database
+      try {
+        await apiClient.post('/qrcodes', {
+          title: text.slice(0, 30) || 'Copied QR Content',
+          content: text,
+          actionType: 'generated'
+        });
+        if (onQrAction) onQrAction();
+      } catch (err) {
+        console.warn('Failed to persist generated QR to DB:', err);
+      }
     } catch { /* ignore */ }
   };
 
@@ -148,7 +173,7 @@ function QRGenerator({ defaultText }: { defaultText?: string }) {
 // ══════════════════════════════════════════════════════════════════════════
 // QR SCANNER sub-component
 // ══════════════════════════════════════════════════════════════════════════
-function QRScanner() {
+function QRScanner({ onQrAction }: { onQrAction?: () => void }) {
   const { success, error: showError } = useToast();
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState('');
@@ -172,6 +197,17 @@ function QRScanner() {
           success('QR Code Found!', decoded.slice(0, 60));
           scanner.stop().catch(() => {});
           setScanning(false);
+
+          // Save to backend database
+          apiClient.post('/qrcodes', {
+            title: `Scanned Code - ${new Date().toLocaleTimeString()}`,
+            content: decoded,
+            actionType: 'scanned'
+          }).then(() => {
+            if (onQrAction) onQrAction();
+          }).catch((err) => {
+            console.warn('Failed to save scanned QR code:', err);
+          });
         },
         () => {}
       );
@@ -193,6 +229,18 @@ function QRScanner() {
       const decoded = await scanner.scanFile(file, true);
       setResult(decoded);
       success('QR Code Found!', decoded.slice(0, 60));
+
+      // Save to backend database
+      try {
+        await apiClient.post('/qrcodes', {
+          title: `Scanned File: ${file.name.slice(0, 20)}`,
+          content: decoded,
+          actionType: 'scanned'
+        });
+        if (onQrAction) onQrAction();
+      } catch (err) {
+        console.warn('Failed to save scanned QR file to DB:', err);
+      }
     } catch {
       showError('Scan Failed', 'No QR code found in the image');
     }
@@ -221,61 +269,56 @@ function QRScanner() {
         </div>
 
         {scanMethod === 'camera' ? (
-          <div>
-            <div id="profile-qr-reader" className="rounded-xl overflow-hidden bg-surface-900 min-h-[260px] mb-3" />
-            <Button
-              variant={scanning ? 'danger' : 'primary'}
-              onClick={scanning ? stopScanner : startScanner}
-              icon={scanning ? <X className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
-              className="w-full"
-            >
-              {scanning ? 'Stop Scanner' : 'Start Camera'}
-            </Button>
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-surface-200 dark:border-white/10 rounded-2xl p-6 min-h-[220px]">
+            <div id="profile-qr-reader" className="w-full max-w-[280px] overflow-hidden rounded-xl bg-black mb-4" />
+            <div className="flex gap-2 w-full justify-center">
+              {!scanning ? (
+                <Button variant="primary" onClick={startScanner} icon={<Scan className="w-4 h-4" />}>Start Camera</Button>
+              ) : (
+                <Button variant="danger" onClick={stopScanner}>Stop Camera</Button>
+              )}
+            </div>
           </div>
         ) : (
-          <div>
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-surface-200 dark:border-white/10 rounded-2xl p-6 min-h-[220px] cursor-pointer hover:bg-surface-50 dark:hover:bg-white/[0.01] transition-colors"
+            onClick={() => fileInputRef.current?.click()}>
+            <input type="file" ref={fileInputRef} onChange={e => e.target.files?.[0] && scanFromFile(e.target.files[0])} accept="image/*" className="hidden" />
             <div id="profile-qr-reader-file" className="hidden" />
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-surface-300 dark:border-surface-600 rounded-xl p-10 text-center cursor-pointer hover:border-brand-400 transition-colors"
-            >
-              <Upload className="w-10 h-10 text-surface-400 mx-auto mb-3" />
-              <p className="text-sm font-medium text-surface-700 dark:text-surface-300">Click to upload an image</p>
-              <p className="text-xs text-surface-400 mt-1">PNG, JPG, or WebP</p>
-            </div>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={e => { const f = e.target.files?.[0]; if (f) scanFromFile(f); }} className="hidden" />
+            <Upload className="w-10 h-10 text-surface-400 mb-3" />
+            <p className="text-sm font-medium text-surface-700 dark:text-surface-300">Click to Upload QR Image</p>
+            <p className="text-xs text-surface-450 mt-1">Supports PNG, JPG, JPEG formats</p>
           </div>
         )}
       </div>
 
       {/* Result */}
-      <div className="card p-6">
-        <h3 className="font-semibold text-surface-900 dark:text-white mb-4">Scan Result</h3>
-        {result ? (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">
-              <div className="flex items-start gap-3">
-                <Check className="w-5 h-5 text-emerald-500 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300 mb-1">QR Code Detected</p>
-                  <p className="text-sm text-emerald-700 dark:text-emerald-400 break-all font-mono">{result}</p>
-                </div>
+      <div className="card p-6 flex flex-col justify-between min-h-[260px]">
+        <div>
+          <p className="text-sm font-medium text-surface-500 mb-4">Scan Result</p>
+          {result ? (
+            <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 flex gap-3">
+              <Check className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300 mb-1">QR Code Detected</p>
+                <p className="text-sm text-emerald-700 dark:text-emerald-400 break-all font-mono">{result}</p>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => { navigator.clipboard.writeText(result); success('Copied', ''); }} icon={<Copy className="w-4 h-4" />} className="flex-1">Copy</Button>
-              {result.startsWith('http') && (
-                <a href={result} target="_blank" rel="noopener noreferrer" className="flex-1">
-                  <Button variant="primary" className="w-full">Open Link</Button>
-                </a>
-              )}
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-surface-400">
+              <Scan className="w-12 h-12 mb-3 opacity-50" />
+              <p className="text-sm font-medium">No QR code scanned yet</p>
+              <p className="text-xs mt-1 text-center">Use camera scanner or upload an image</p>
             </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-12 text-surface-400">
-            <Scan className="w-12 h-12 mb-3 opacity-50" />
-            <p className="text-sm font-medium">No QR code scanned yet</p>
-            <p className="text-xs mt-1 text-center">Use camera scanner or upload an image</p>
+          )}
+        </div>
+        {result && (
+          <div className="flex gap-2 mt-4">
+            <Button variant="secondary" onClick={() => { navigator.clipboard.writeText(result); success('Copied', ''); }} icon={<Copy className="w-4 h-4" />} className="flex-1">Copy</Button>
+            {result.startsWith('http') && (
+              <a href={result} target="_blank" rel="noopener noreferrer" className="flex-1">
+                <Button variant="primary" className="w-full">Open Link</Button>
+              </a>
+            )}
           </div>
         )}
       </div>
@@ -305,6 +348,70 @@ export default function ProfilePage() {
     location: user?.location || '',
     phone: user?.phone || '',
   });
+
+  // Dynamic live statistical metrics states
+  const [counts, setCounts] = useState({
+    maps: 0,
+    routes: 0,
+    qrs: 0,
+    sessions: 42
+  });
+
+  // Fetch telemetry counts from server resources
+  const loadCounts = useCallback(async () => {
+    if (!user) return;
+    try {
+      // 1. Fetch Maps Count
+      const mapsList = await mapService.listMaps();
+      
+      // 2. Fetch Routes Count
+      let routesList = [];
+      try {
+        const res = await apiClient.get<any>('/routes?limit=100');
+        routesList = res.docs || res || [];
+      } catch (err) {
+        console.warn('Failed to load routes count:', err);
+      }
+      
+      // 3. Fetch Audit Logs for session operations count
+      let totalSessions = 42;
+      try {
+        const res = await apiClient.get<any>('/audit-logs?limit=100');
+        const logs = res.docs || res || [];
+        const logins = logs.filter((l: any) => l.action === 'USER_LOGIN').length;
+        totalSessions = logins > 0 ? logins : logs.length;
+      } catch (err) {
+        console.warn('Failed to load sessions count:', err);
+      }
+
+      // 4. Fetch recorded QR codes count from database
+      let qrsCount = 0;
+      try {
+        const res = await apiClient.get<any>('/qrcodes');
+        qrsCount = res.count !== undefined ? res.count : (res.data?.length || 0);
+      } catch (err) {
+        console.warn('Failed to load QR codes count:', err);
+      }
+      
+      setCounts({
+        maps: mapsList.length,
+        routes: routesList.length,
+        qrs: qrsCount,
+        sessions: totalSessions
+      });
+    } catch (err) {
+      console.warn('Failed to fetch profile counts:', err);
+    }
+  }, [user]);
+
+  // Load counts on mount and tab shifts
+  useEffect(() => {
+    loadCounts();
+  }, [loadCounts, activeTab]);
+
+  const incrementQrCount = () => {
+    setCounts(prev => ({ ...prev, qrs: prev.qrs + 1 }));
+  };
 
   // Generate Profile QR on mount / user change
   useEffect(() => {
@@ -351,15 +458,15 @@ export default function ProfilePage() {
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { showError('Upload failed', 'Photo must be < 5MB'); return; }
-    const formData = new FormData();
-    formData.append('avatar', file);
     setAvatarLoading(true);
     try {
+      const formData = new FormData();
+      formData.append('avatar', file);
       await uploadAvatar(formData);
-      success('Avatar updated', 'Profile picture updated');
+      success('Avatar updated', 'Your profile picture was successfully updated');
+      loadCounts();
     } catch (err: any) {
-      showError('Upload failed', err.message);
+      showError('Upload failed', err.message || 'Could not update avatar picture.');
     } finally {
       setAvatarLoading(false);
     }
@@ -371,11 +478,15 @@ export default function ProfilePage() {
     <DashboardLayout>
       <Breadcrumb items={[{ label: 'Home', href: '/' }, { label: 'Profile' }]} />
 
-      <input type="file" ref={fileInputRef} onChange={handleAvatarChange} style={{ display: 'none' }} accept="image/*" />
+      <div className="mb-6">
+        <h1 className="page-title">Profile Settings</h1>
+        <p className="page-subtitle">Manage your profile information and view system statistics</p>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column */}
         <div className="space-y-6">
+          {/* Profile Card */}
           <ProfileCard
             name={user.name}
             email={user.email}
@@ -384,9 +495,9 @@ export default function ProfilePage() {
             location={user.location}
             joinedAt={user.joinedAt}
             stats={[
-              { label: 'Maps', value: 12 },
-              { label: 'Routes', value: 8 },
-              { label: 'QR Codes', value: 24 },
+              { label: 'Maps', value: counts.maps },
+              { label: 'Routes', value: counts.routes },
+              { label: 'QR Codes', value: counts.qrs },
             ]}
           />
 
@@ -421,10 +532,10 @@ export default function ProfilePage() {
           {activeTab === 'overview' && (
             <div className="space-y-6 animate-fade-in">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <StatCard icon={<Map className="w-5 h-5" />} label="Maps Saved" value={12} />
-                <StatCard icon={<Compass className="w-5 h-5" />} label="Routes" value={8} />
-                <StatCard icon={<QrCode className="w-5 h-5" />} label="QR Codes" value={24} />
-                <StatCard icon={<Activity className="w-5 h-5" />} label="Sessions" value={42} />
+                <StatCard icon={<Map className="w-5 h-5" />} label="Maps Saved" value={counts.maps} />
+                <StatCard icon={<Compass className="w-5 h-5" />} label="Routes" value={counts.routes} />
+                <StatCard icon={<QrCode className="w-5 h-5" />} label="QR Codes" value={counts.qrs} />
+                <StatCard icon={<Activity className="w-5 h-5" />} label="Sessions" value={counts.sessions} />
               </div>
               <SettingsCard title="Personal Information">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -449,7 +560,7 @@ export default function ProfilePage() {
             <SettingsCard title="Edit Profile" description="Update your personal information" className="animate-fade-in">
               <div className="space-y-5">
                 <div className="flex items-center gap-4">
-                  <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                  <div className="relative group cursor-pointer" onClick={() => { if (!avatarLoading) fileInputRef.current?.click(); }}>
                     <Avatar name={user.name} src={getAvatarUrl(user.avatar)} size="xl" />
                     <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Camera className="w-5 h-5 text-white" />
@@ -459,6 +570,7 @@ export default function ProfilePage() {
                     <p className="text-sm font-medium text-surface-900 dark:text-white">Profile Photo</p>
                     <p className="text-xs text-surface-500 mt-0.5">Click to upload. JPG, PNG. Max 5MB.</p>
                   </div>
+                  <input type="file" ref={fileInputRef} onChange={handleAvatarChange} className="hidden" accept="image/*" />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input label="Full name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} leftIcon={<UserIcon className="w-4 h-4" />} />
@@ -477,7 +589,7 @@ export default function ProfilePage() {
           {/* ── QR Tools ── */}
           {activeTab === 'qr' && (
             <div className="space-y-6 animate-fade-in">
-              <QRSubTabs user={user} />
+              <QRSubTabs user={user} onQrAction={incrementQrCount} />
             </div>
           )}
 
@@ -513,7 +625,7 @@ export default function ProfilePage() {
 // ══════════════════════════════════════════════════════════════════════════
 // QR sub-tabs inside the QR Tools tab
 // ══════════════════════════════════════════════════════════════════════════
-function QRSubTabs({ user }: { user: any }) {
+function QRSubTabs({ user, onQrAction }: { user: any; onQrAction?: () => void }) {
   const [sub, setSub] = useState<'generate' | 'scan'>('generate');
   const profileText = user ? JSON.stringify({ name: user.name, email: user.email, role: user.role }) : '';
 
@@ -535,9 +647,9 @@ function QRSubTabs({ user }: { user: any }) {
 
       <div key={sub} className="animate-fade-in">
         {sub === 'generate' ? (
-          <QRGenerator defaultText={profileText} />
+          <QRGenerator defaultText={profileText} onQrAction={onQrAction} />
         ) : (
-          <QRScanner />
+          <QRScanner onQrAction={onQrAction} />
         )}
       </div>
     </div>

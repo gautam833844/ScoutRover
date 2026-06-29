@@ -30,6 +30,37 @@ for (let y = 0; y < height; y++) {
   }
 }
 
+// Simulated Rover Telemetry state
+let posX = 0.0;
+let posY = 0.0;
+let theta = 0.0; // Heading in radians
+let linearVel = 0.0;
+let angularVel = 0.0;
+let lastCmdTime = 0;
+
+// Central Physics Simulation Update (100ms interval)
+setInterval(() => {
+  const now = Date.now();
+  const dt = 0.1; // seconds
+
+  // Decelerate naturally to stop if no active cmd_vel messages are received within 300ms
+  if (now - lastCmdTime > 350) {
+    linearVel = linearVel * 0.5;
+    angularVel = angularVel * 0.5;
+    if (Math.abs(linearVel) < 0.01) linearVel = 0;
+    if (Math.abs(angularVel) < 0.01) angularVel = 0;
+  }
+
+  // Update Pose (simple 2D differential drive kinematics)
+  posX += linearVel * Math.cos(theta) * dt;
+  posY += linearVel * Math.sin(theta) * dt;
+  theta += angularVel * dt;
+
+  // Normalize theta to [-PI, PI]
+  if (theta > Math.PI) theta -= 2 * Math.PI;
+  if (theta < -Math.PI) theta += 2 * Math.PI;
+}, 100);
+
 // Client management
 wss.on('connection', (ws: WebSocket) => {
   console.log(`🔌 [Mock ROS Bridge] Client connected!`);
@@ -50,15 +81,17 @@ wss.on('connection', (ws: WebSocket) => {
         subscriptions.delete(msg.topic);
       } else if (msg.op === 'publish') {
         if (msg.topic === '/cmd_vel') {
-          const linear = msg.msg.linear?.x || 0;
-          const angular = msg.msg.angular?.z || 0;
-          let arrow = '⏹️  STOP';
-          if (linear > 0) arrow = '🔼 DRIVE FORWARD';
-          else if (linear < 0) arrow = '🔽 DRIVE BACKWARD';
-          else if (angular > 0) arrow = '◀️ TURN LEFT';
-          else if (angular < 0) arrow = '▶️ TURN RIGHT';
+          linearVel = msg.msg.linear?.x || 0;
+          angularVel = msg.msg.angular?.z || 0;
+          lastCmdTime = Date.now();
           
-          console.log(`🎮 [Rover Drive] Command Received: ${arrow} (Linear: ${linear.toFixed(2)} m/s, Angular: ${angular.toFixed(2)} rad/s)`);
+          let arrow = '⏹️  STOP';
+          if (linearVel > 0) arrow = '🔼 DRIVE FORWARD';
+          else if (linearVel < 0) arrow = '🔽 DRIVE BACKWARD';
+          else if (angularVel > 0) arrow = '◀️ TURN LEFT';
+          else if (angularVel < 0) arrow = '▶️ TURN RIGHT';
+          
+          console.log(`🎮 [Rover Drive] Command Received: ${arrow} (Linear: ${linearVel.toFixed(2)} m/s, Angular: ${angularVel.toFixed(2)} rad/s)`);
         }
       }
     } catch (err) {
@@ -66,7 +99,7 @@ wss.on('connection', (ws: WebSocket) => {
     }
   });
 
-  // Periodically send occupancy grid map to subscribers
+  // Periodically send occupancy grid map to subscribers (every 2 seconds)
   const mapInterval = setInterval(() => {
     if (!subscriptions.has('/map')) return;
     
@@ -103,8 +136,47 @@ wss.on('connection', (ws: WebSocket) => {
     }
   }, 2000);
 
+  // Periodically publish simulated Odometry telemetry back to subscribers (every 100ms)
+  const odomInterval = setInterval(() => {
+    if (!subscriptions.has('/odom')) return;
+
+    // Convert yaw angle theta to standard quaternion z, w
+    const qz = Math.sin(theta / 2);
+    const qw = Math.cos(theta / 2);
+
+    const odomMessage = {
+      op: 'publish',
+      topic: '/odom',
+      msg: {
+        header: {
+          seq: 0,
+          stamp: { secs: Math.floor(Date.now() / 1000), nsecs: (Date.now() % 1000) * 1000000 },
+          frame_id: 'odom'
+        },
+        child_frame_id: 'base_link',
+        pose: {
+          pose: {
+            position: { x: posX, y: posY, z: 0 },
+            orientation: { x: 0, y: 0, z: qz, w: qw }
+          }
+        },
+        twist: {
+          twist: {
+            linear: { x: linearVel, y: 0, z: 0 },
+            angular: { x: 0, y: 0, z: angularVel }
+          }
+        }
+      }
+    };
+
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(odomMessage));
+    }
+  }, 100);
+
   ws.on('close', () => {
     console.log(`🔌 [Mock ROS Bridge] Client disconnected.`);
     clearInterval(mapInterval);
+    clearInterval(odomInterval);
   });
 });

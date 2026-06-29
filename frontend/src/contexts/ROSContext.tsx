@@ -22,6 +22,9 @@ interface ROSContextType {
   cmdVelTopic: any | null;
   isLiveMode: boolean;
   setIsLiveMode: (live: boolean) => void;
+  odomSpeed: number;
+  odomHeading: number;
+  odomPosition: { x: number; y: number };
 }
 
 const ROSContext = createContext<ROSContextType | null>(null);
@@ -33,9 +36,15 @@ export function ROSProvider({ children }: { children: ReactNode }) {
   const [lastMapUpdate, setLastMapUpdate] = useState<string | null>(null);
   const [isLiveMode, setIsLiveMode] = useState<boolean>(false);
 
+  // Live real-time telemetry states
+  const [odomSpeed, setOdomSpeed] = useState<number>(0);
+  const [odomHeading, setOdomHeading] = useState<number>(0);
+  const [odomPosition, setOdomPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
   const rosRef = useRef<any>(null);
   const cmdVelRef = useRef<any>(null);
   const mapListenerRef = useRef<any>(null);
+  const odomListenerRef = useRef<any>(null);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const retryCountRef = useRef<number>(0);
@@ -60,6 +69,10 @@ export function ROSProvider({ children }: { children: ReactNode }) {
       mapListenerRef.current.unsubscribe();
       mapListenerRef.current = null;
     }
+    if (odomListenerRef.current) {
+      odomListenerRef.current.unsubscribe();
+      odomListenerRef.current = null;
+    }
     if (rosRef.current) {
       try {
         rosRef.current.close();
@@ -71,6 +84,9 @@ export function ROSProvider({ children }: { children: ReactNode }) {
     cmdVelRef.current = null;
     setRosStatus('disconnected');
     setLiveGrid(null);
+    setOdomSpeed(0);
+    setOdomHeading(0);
+    setOdomPosition({ x: 0, y: 0 });
   }, []);
 
   const connectToROS = useCallback(async () => {
@@ -126,6 +142,39 @@ export function ROSProvider({ children }: { children: ReactNode }) {
           ros,
           name: ROS_CONFIG.cmdVelTopic,
           messageType: 'geometry_msgs/Twist',
+        });
+
+        // Odom telemetry subscriber
+        odomListenerRef.current = new Topic({
+          ros,
+          name: '/odom',
+          messageType: 'nav_msgs/Odometry',
+          throttle_rate: 100,
+        });
+
+        odomListenerRef.current.subscribe((message: any) => {
+          if (message && message.pose && message.pose.pose) {
+            const pos = message.pose.pose.position;
+            const ori = message.pose.pose.orientation;
+            const twist = message.twist?.twist;
+            
+            // Convert orientation quaternion to yaw angle (in degrees)
+            const qx = ori.x || 0;
+            const qy = ori.y || 0;
+            const qz = ori.z || 0;
+            const qw = ori.w || 1;
+            
+            // yaw (heading) from quaternion
+            const siny_cosp = 2 * (qw * qz + qx * qy);
+            const cosy_cosp = 1 - 2 * (qy * qy + qz * qz);
+            const yaw = Math.atan2(siny_cosp, cosy_cosp);
+            let headingDegrees = Math.round((yaw * 180) / Math.PI);
+            if (headingDegrees < 0) headingDegrees += 360; // Map to 0-360 degrees
+            
+            setOdomSpeed(twist?.linear?.x || 0);
+            setOdomHeading(headingDegrees);
+            setOdomPosition({ x: pos.x || 0, y: pos.y || 0 });
+          }
         });
 
         // Load current mapping config
@@ -205,6 +254,9 @@ export function ROSProvider({ children }: { children: ReactNode }) {
         cmdVelTopic: cmdVelRef.current,
         isLiveMode,
         setIsLiveMode,
+        odomSpeed,
+        odomHeading,
+        odomPosition,
       }}
     >
       {children}

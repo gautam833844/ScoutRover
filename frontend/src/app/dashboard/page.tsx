@@ -27,6 +27,17 @@ const getActivityIcon = (action: string) => {
   return <Activity className="w-4 h-4" />;
 };
 
+const getHeadingString = (heading: number): string => {
+  if (heading >= 337.5 || heading < 22.5) return 'North';
+  if (heading >= 22.5 && heading < 67.5) return 'North-East';
+  if (heading >= 67.5 && heading < 112.5) return 'East';
+  if (heading >= 112.5 && heading < 157.5) return 'South-East';
+  if (heading >= 157.5 && heading < 202.5) return 'South';
+  if (heading >= 202.5 && heading < 247.5) return 'South-West';
+  if (heading >= 247.5 && heading < 292.5) return 'West';
+  return 'North-West';
+};
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { success, error: showError, info } = useToast();
@@ -38,6 +49,9 @@ export default function DashboardPage() {
     lastMapUpdate,
     cmdVelTopic,
     setIsLiveMode,
+    odomSpeed,
+    odomHeading,
+    odomPosition,
   } = useROS();
 
   const [currentDirection, setCurrentDirection] = useState<string | null>(null);
@@ -326,16 +340,17 @@ export default function DashboardPage() {
         />
         <StatCard
           icon={<Gauge className="w-5 h-5" />}
-          label="Speed"
-          value={`${ROS_CONFIG.linearSpeed} m/s`}
-          change="Nominal"
-          changeType="positive"
+          label="Live Speed"
+          value={rosStatus === 'connected' ? `${Math.abs(odomSpeed).toFixed(2)} m/s` : '0.00 m/s'}
+          change={odomSpeed !== 0 ? 'Active drive' : 'Stationary'}
+          changeType={odomSpeed !== 0 ? 'positive' : 'neutral'}
         />
         <StatCard
           icon={<Compass className="w-5 h-5" />}
-          label="Direction"
-          value={currentDirection ? currentDirection.charAt(0).toUpperCase() + currentDirection.slice(1) : 'Idle'}
-          changeType="neutral"
+          label="Heading Direction"
+          value={rosStatus === 'connected' ? `${odomHeading}° (${getHeadingString(odomHeading)})` : 'Idle'}
+          change={currentDirection ? `Moving ${currentDirection}` : 'Stationary'}
+          changeType={currentDirection ? 'positive' : 'neutral'}
         />
       </div>
 
@@ -354,6 +369,11 @@ export default function DashboardPage() {
               <span className="text-[10px] text-surface-400 font-mono hidden sm:inline">
                 {mappingConfig.mapTopic}
               </span>
+              {rosStatus === 'connected' && (
+                <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-mono font-bold animate-pulse">
+                  Pose: X: {odomPosition.x.toFixed(2)}m, Y: {odomPosition.y.toFixed(2)}m
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {lastMapUpdate && (
